@@ -2,33 +2,32 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
+const BINARY_CHECK_BYTES: usize = 8192; // Check first 8KB for null bytes
+
 /// Checks if a file is a binary type that should be excluded.
 /// Allows text-based files and SVGs.
 pub fn is_binary_or_image(path: &Path) -> Result<bool> {
     if !path.is_file() {
         return Ok(false);
     }
+
     if let Some(kind) = infer::get_from_path(path)? {
         let mime = kind.mime_type();
-        if mime.starts_with("text/") || mime == "image/svg+xml" {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
-    } else {
-        match fs::read(path) {
-            Ok(bytes) => Ok(String::from_utf8(bytes).is_err()),
-            Err(_) => Ok(true),
-        }
+        return Ok(!mime.starts_with("text/") && mime != "image/svg+xml");
     }
+
+    let bytes = fs::read(path)?;
+    Ok(bytes[..bytes.len().min(BINARY_CHECK_BYTES)].contains(&0))
 }
 
-/// Reads file content into a string, falling back to lossy conversion for non-UTF8 files.
+/// Reads file content into a string, using lossy conversion for non-UTF8 files.
 pub fn read_file_contents(path: &Path) -> Result<String> {
     let bytes = fs::read(path)?;
-    Ok(String::from_utf8_lossy(&bytes).to_string())
-}
 
+    // Try efficient conversion first, fall back to lossy if needed
+    String::from_utf8(bytes)
+        .or_else(|e| Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()))
+}
 
 #[cfg(test)]
 mod tests {

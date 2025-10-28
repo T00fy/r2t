@@ -20,8 +20,12 @@ pub struct Cli {
     #[arg(long)]
     pub no_gitignore: bool,
 
+    /// Skip including the content of test files and inline test modules.
+    #[arg(long)]
+    pub skip_tests: bool,
+
     /// Create a default .r2t.yaml settings file in the current directory.
-    #[arg(long, conflicts_with_all = &["path", "output_dir", "stdout", "no_gitignore"])]
+    #[arg(long, conflicts_with_all = &["path", "output_dir", "stdout", "no_gitignore", "skip_tests"])]
     pub create_settings: bool,
 
     /// Use with --create-settings to create a global configuration file.

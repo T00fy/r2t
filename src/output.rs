@@ -1,5 +1,6 @@
-use crate::files;
+use crate::{files, stripper};
 use anyhow::{Context, Result};
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 pub fn generate_output(
@@ -7,34 +8,43 @@ pub fn generate_output(
     tree: &str,
     files_to_include: &[PathBuf],
     root_path: &Path,
+    skip_tests: bool,
 ) -> Result<String> {
     let mut output = String::new();
 
-    output.push_str("<repo-to-text>\n");
-    output.push_str(&format!("Directory: {}\n\n", project_name));
-    output.push_str("Directory Structure:\n");
-    output.push_str("<directory_structure>\n");
-    output.push_str(tree);
-    output.push_str("</directory_structure>\n");
+    // Write header
+    writeln!(output, "<repo-to-text>")?;
+    writeln!(output, "Directory: {}\n", project_name)?;
+    writeln!(output, "Directory Structure:")?;
+    writeln!(output, "<directory_structure>")?;
+    write!(output, "{}", tree)?;
+    writeln!(output, "</directory_structure>")?;
 
+    // Write file contents
     for file_path in files_to_include {
-        let relative_path = file_path.strip_prefix(root_path)?;
-        output.push_str(&format!(
-            "\n<content full_path=\"{}\">\n",
-            relative_path.to_string_lossy()
-        ));
+        let relative_path = file_path
+            .strip_prefix(root_path)
+            .with_context(|| format!("Failed to strip prefix from: {:?}", file_path))?;
 
-        let content = files::read_file_contents(file_path)
-            .with_context(|| format!("Failed to read content of file: {:?}", file_path))?;
-        output.push_str(&content);
-        output.push_str("\n</content>\n");
+        writeln!(output, "\n<content full_path=\"{}\">", relative_path.display())?;
+
+        let raw_content = files::read_file_contents(file_path)
+            .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+
+        let content = if skip_tests {
+            stripper::strip_inline_tests(file_path, &raw_content)
+        } else {
+            raw_content
+        };
+
+        writeln!(output, "{}", content)?;
+        writeln!(output, "</content>")?;
     }
 
-    output.push_str("\n</repo-to-text>\n");
+    writeln!(output, "\n</repo-to-text>")?;
 
     Ok(output)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,7 +69,8 @@ mod tests {
             "my_project",
             "any tree structure",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
         assert!(output.starts_with("<repo-to-text>\n"));
@@ -79,7 +90,8 @@ mod tests {
             "project",
             custom_tree,
             &[],
-            temp_dir.path()
+            temp_dir.path(),
+            false
         ).unwrap();
 
         assert!(output.contains(custom_tree));
@@ -97,7 +109,8 @@ mod tests {
             "project",
             "tree",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
         assert!(output.contains("<content full_path=\"main.rs\">"));
@@ -118,7 +131,8 @@ mod tests {
             "project",
             "tree",
             &[file1, file2, file3],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
         let pos_a = output.find("full_path=\"a.txt\"").unwrap();
@@ -145,9 +159,11 @@ mod tests {
             "project",
             "tree",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
+        // Check for relative path (handle both Unix and Windows separators)
         let has_unix_path = output.contains("full_path=\"src/models/user.rs\"");
         let has_windows_path = output.contains("full_path=\"src\\models\\user.rs\"");
         assert!(has_unix_path || has_windows_path);
@@ -161,7 +177,8 @@ mod tests {
             "empty_project",
             "empty tree",
             &[],
-            temp_dir.path()
+            temp_dir.path(),
+            false
         ).unwrap();
 
         assert!(output.contains("<repo-to-text>"));
@@ -180,9 +197,11 @@ mod tests {
             "project",
             "tree",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
+        // Empty file has content tags with just newlines between them
         assert!(output.contains("<content full_path=\"empty.txt\">"));
         assert!(output.contains("</content>"));
     }
@@ -199,7 +218,8 @@ mod tests {
             "project",
             "tree",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
         assert!(output.contains(unicode));
@@ -217,9 +237,11 @@ mod tests {
             "project",
             "tree",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
+        // Function doesn't escape - content appears as-is
         assert!(output.contains(content));
     }
 
@@ -234,7 +256,8 @@ mod tests {
             "project",
             "tree",
             &[file_path],
-            root_path
+            root_path,
+            false
         ).unwrap();
 
         assert!(output.contains("full_path=\"my file.txt\""));
@@ -250,12 +273,13 @@ mod tests {
             "project",
             "tree",
             &[nonexistent],
-            root_path
+            root_path,
+            false
         );
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Failed to read content of file"));
+        assert!(err.to_string().contains("Failed to read file"));
     }
 
     #[test]
@@ -265,12 +289,16 @@ mod tests {
 
         let file_in_dir2 = create_test_file(temp_dir2.path(), "file.txt", "content");
 
+        // Try to use file from dir2 with root from dir1
         let result = generate_output(
             "project",
             "tree",
             &[file_in_dir2],
-            temp_dir1.path()
+            temp_dir1.path(),
+            false
         );
+
+        // strip_prefix should fail
         assert!(result.is_err());
     }
 }

@@ -11,6 +11,7 @@ It is a Rust rewrite inspired by the original Python [repo-to-text](https://gith
 -   **Smart Filtering:**
     -   Respects `.gitignore` rules by default.
     -   Automatically detects and excludes binary files like images, archives, and executables (while intelligently including text-based vector graphics like SVG).
+    -   Optionally skips the content of test files (e.g., `*_test.go`, `src/test/**`) and inline Rust test modules (`#[cfg(test)]`) to create a more concise context.
 -   **Customizable:** Use a `.r2t.yaml` file to define custom ignore patterns for fine-grained control over the output.
 -   **Easy to Use:** Simple and intuitive command-line interface.
 -   **Cross-Platform:** Works on Windows, macOS, and Linux.
@@ -56,6 +57,7 @@ Options:
   -o, --output-dir <OUTPUT_DIR>  Directory to save the output file. Defaults to the input directory
       --stdout                   Output the result to stdout instead of a file
       --no-gitignore             Do not respect .gitignore files for filtering
+      --skip-tests               Skip including the content of test files and inline test modules
       --create-settings          Create a default .r2t.yaml settings file in the current directory
       --global                   Use with --create-settings to create a global configuration file
   -h, --help                     Print help
@@ -77,6 +79,11 @@ Options:
 -   **Include files that are normally ignored by `.gitignore`:**
     ```bash
     r2t --no-gitignore
+    ```
+
+-   **Exclude test file content:**
+    ```bash
+    r2t --skip-tests
     ```
 
 -   **Generate a configuration file:**
@@ -138,9 +145,6 @@ Run the full test suite:
 ```bash
 cargo test
 ```
-
-## Roadmap
--   [ ] **Test File Detection**: Implement a feature to automatically detect and optionally skip test files (`*_test.go`, `*.spec.ts`, `#[cfg(test)]` modules in Rust, etc.) to further reduce the output size for LLMs.
 
 ## Acknowledgements
 -   This project is a Rust rewrite inspired by the excellent Python tool [repo-to-text](https://github.com/kirill-markin/repo-to-text) by Kirill Markin.

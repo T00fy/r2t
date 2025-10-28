@@ -1,1 +1,0 @@
-Detect unit tests (java/rust/go) and add flag to skip them in the content section to reduce file size

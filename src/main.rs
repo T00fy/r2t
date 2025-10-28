@@ -10,6 +10,7 @@ mod config;
 mod files;
 mod output;
 mod processor;
+mod stripper;
 
 use cli::Cli;
 use config::Config;
@@ -42,14 +43,19 @@ fn main() -> Result<()> {
         .to_string_lossy()
         .to_string();
 
-    let process_result =
-        DirectoryProcessor::new().process(&start_path, &config, cli.no_gitignore)?;
+    let process_result = DirectoryProcessor::new().process(
+        &start_path,
+        &config,
+        cli.no_gitignore,
+        cli.skip_tests,
+    )?;
 
     let final_output = output::generate_output(
         &project_name,
         &process_result.tree,
         &process_result.files_to_include,
         &start_path,
+        cli.skip_tests
     )?;
 
     if cli.stdout {

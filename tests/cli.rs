@@ -1,3 +1,4 @@
+// tests/cli.rs
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::fs;
@@ -156,6 +157,135 @@ fn test_binary_file_exclusion() -> Result<(), Box<dyn std::error::Error>> {
                 // PNG should be completely excluded
                 .and(predicate::str::contains("logo.png").not())
         );
+
+    Ok(())
+}
+
+#[test]
+fn test_skip_tests_go_and_java() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let proj_root = dir.path();
+
+    // --- Setup mock project ---
+    // Go files
+    fs::write(proj_root.join("main.go"), "package main")?;
+    fs::write(proj_root.join("main_test.go"), "package main_test")?;
+
+    // Java files
+    let java_main = proj_root.join("src/main/java");
+    fs::create_dir_all(&java_main)?;
+    fs::write(java_main.join("App.java"), "public class App {}")?;
+
+    let java_test = proj_root.join("src/test/java");
+    fs::create_dir_all(&java_test)?;
+    fs::write(java_test.join("AppTest.java"), "public class AppTest {}")?;
+
+    let java_it = proj_root.join("src/testIntegration/java");
+    fs::create_dir_all(&java_it)?;
+    fs::write(java_it.join("IntegrationTest.java"), "public class IT {}")?;
+
+    let java_at = proj_root.join("src/testApplication/java");
+    fs::create_dir_all(&java_at)?;
+    fs::write(java_at.join("ApplicationTest.java"), "public class AT {}")?;
+
+    // --- 1. Run WITHOUT the flag (default behavior) ---
+    let mut cmd1 = Command::cargo_bin("r2t")?;
+    cmd1.arg(proj_root.to_str().unwrap()).arg("--stdout");
+
+    cmd1.assert().success().stdout(
+        predicate::str::contains("<content full_path=\"main_test.go\">")
+            .and(predicate::str::contains("package main_test"))
+            .and(predicate::str::contains("<content full_path=\"src/test/java/AppTest.java\">"))
+            .and(predicate::str::contains("public class AppTest {}"))
+            .and(predicate::str::contains("<content full_path=\"src/testIntegration/java/IntegrationTest.java\">"))
+            .and(predicate::str::contains("public class IT {}"))
+            .and(predicate::str::contains("<content full_path=\"src/testApplication/java/ApplicationTest.java\">"))
+            .and(predicate::str::contains("public class AT {}")),
+    );
+
+    // --- 2. Run WITH the flag ---
+    let mut cmd2 = Command::cargo_bin("r2t")?;
+    cmd2.arg(proj_root.to_str().unwrap()).arg("--stdout").arg("--skip-tests");
+
+    cmd2.assert().success().stdout(
+        // Verify production code is still present
+        predicate::str::contains("<content full_path=\"main.go\">")
+            .and(predicate::str::contains("package main"))
+            .and(predicate::str::contains("<content full_path=\"src/main/java/App.java\">"))
+            .and(predicate::str::contains("public class App {}"))
+
+            // Verify test files are in the tree
+            .and(predicate::str::contains("main_test.go"))
+            .and(predicate::str::contains("AppTest.java"))
+            .and(predicate::str::contains("IntegrationTest.java"))
+            .and(predicate::str::contains("ApplicationTest.java"))
+
+            // BUT their content is NOT present
+            .and(predicate::str::contains("<content full_path=\"main_test.go\">").not())
+            .and(predicate::str::contains("package main_test").not())
+            .and(predicate::str::contains("<content full_path=\"src/test/java/AppTest.java\">").not())
+            .and(predicate::str::contains("public class AppTest {}").not())
+            .and(predicate::str::contains("<content full_path=\"src/testIntegration/java/IntegrationTest.java\">").not())
+            .and(predicate::str::contains("public class IT {}").not())
+            .and(predicate::str::contains("<content full_path=\"src/testApplication/java/ApplicationTest.java\">").not())
+            .and(predicate::str::contains("public class AT {}").not())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_skip_tests_rust() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let proj_root = dir.path();
+
+    let rust_content = r#"
+pub fn production_function() -> bool {
+    true
+}
+
+
+#[cfg(test)]
+mod tests {
+// This comment should be removed
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        assert_eq!(production_function(), true);
+    }
+}
+// This comment should remain
+"#;
+
+    fs::write(proj_root.join("lib.rs"), rust_content)?;
+
+    // --- 1. Run WITHOUT the flag ---
+    let mut cmd1 = Command::cargo_bin("r2t")?;
+    cmd1.arg(proj_root.to_str().unwrap()).arg("--stdout");
+
+    cmd1.assert().success().stdout(
+        predicate::str::contains("pub fn production_function()")
+            .and(predicate::str::contains("#[cfg(test)]"))
+            .and(predicate::str::contains("mod tests"))
+            .and(predicate::str::contains("it_works"))
+    );
+
+    // --- 2. Run WITH the flag ---
+    let mut cmd2 = Command::cargo_bin("r2t")?;
+    cmd2.arg(proj_root.to_str().unwrap()).arg("--stdout").arg("--skip-tests");
+
+    cmd2.assert().success().stdout(
+        // Verify production code is still present
+        predicate::str::contains("pub fn production_function()")
+            .and(predicate::str::contains("// This comment should remain"))
+
+            // Verify test code is GONE
+            .and(predicate::str::contains("#[cfg(test)]").not())
+            .and(predicate::str::contains("mod tests").not())
+            .and(predicate::str::contains("it_works").not())
+            .and(predicate::str::contains("// This comment should be removed").not())
+    );
 
     Ok(())
 }

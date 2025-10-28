@@ -1,6 +1,6 @@
 [package]
 name = "r2t"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["Mostafa Alsari <mostafa.alsari@gmail.com>"]
 description = "A fast CLI tool to convert a repository's structure and contents into a single text file, useful for providing context to LLMs."
@@ -13,9 +13,9 @@ categories = ["command-line-utilities", "development-tools"]
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
-directories = "5.0"
+directories = "6.0"
 ignore = "0.4"
-infer = "0.16"
+infer = "0.19"
 ptree = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9.33"
