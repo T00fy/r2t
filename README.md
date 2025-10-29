@@ -45,7 +45,7 @@ Or if you wanted to install from source:
 Running `r2t` in a project directory will process it and create a timestamped output file (e.g., `repo-to-text_1700000000.yaml`) in the same directory. The default output format is XML.
 
 ```bash
-# Process the current directory (creates a .yaml file)
+# Process the current directory
 r2t
 
 # Process a specific directory
