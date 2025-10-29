@@ -1,6 +1,6 @@
 [package]
 name = "r2t"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Mostafa Alsari <mostafa.alsari@gmail.com>"]
 description = "A fast CLI tool to convert a repository's structure and contents into a single text file, useful for providing context to LLMs."
@@ -21,7 +21,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9.33"
 serde_json = "1.0.145"
 globset = "0.4.18"
-yaml-rust2 = "0.10.4"
 
 [dev-dependencies]
 mockall = "0.13.1"
