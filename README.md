@@ -21,7 +21,12 @@ It is a Rust rewrite inspired by the original Python [repo-to-text](https://gith
 
 ## Installation
 
-### From Source
+You can really quickly try this out by just simply running
+```bash
+    cargo install r2t
+```
+
+Or if you wanted to install from source:
 
 1.  Clone the repository:
     ```bash
