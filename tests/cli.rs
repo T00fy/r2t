@@ -37,25 +37,6 @@ fn create_r2t_config(root: &Path, config: &str) -> TestResult {
     Ok(())
 }
 
-/// Checks if any file with the given extension exists in the directory
-fn find_file_with_extension(dir: &Path, extension: &str) -> bool {
-    fs::read_dir(dir)
-        .ok()
-        .and_then(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .find(|entry| {
-                    entry.path().is_file()
-                        && entry
-                        .path()
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        == Some(extension.trim_start_matches('.'))
-                })
-        })
-        .is_some()
-}
-
 /// Builds a predicate that checks for all strings in the slice
 fn contains_all(strings: &[&str]) -> impl Predicate<str> {
     strings

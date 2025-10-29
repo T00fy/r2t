@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Result};
 use serde::Serialize;
 use std::fmt::Write;
 
@@ -75,11 +75,6 @@ fn yaml_escape_simple(s: &str) -> String {
         s.to_string()
     }
 }
-
-fn serialize_json(repo: &RepoRepresentation) -> Result<String> {
-    serde_json::to_string_pretty(repo).context("Failed to serialize to JSON")
-}
-
 
 /// Renders a highly readable, but not strictly valid, JSON-like format.
 /// It uses triple-quotes for multi-line strings.
