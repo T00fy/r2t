@@ -7,10 +7,8 @@ use std::path::PathBuf;
 pub enum FormatArg {
     Yaml,
     Json,
-    /// Real json is actually quite hard to read with multi-line strings. This pseudo format uses triple quotes to handle it instead
-    PseudoJson,
-    /// More a pseudo-xml format. Used by the original repo-to-text
-    PseudoXml,
+    /// Used by the original repo-to-text
+    Xml,
 }
 
 #[derive(Parser, Debug)]

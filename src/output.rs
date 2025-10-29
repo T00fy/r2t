@@ -20,22 +20,60 @@ pub struct RepoRepresentation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     Yaml,
-    PseudoJson,
     Json,
-    PseudoXml,
+    Xml,
 }
 
 pub fn render(format: OutputFormat, repo: &RepoRepresentation) -> Result<String> {
     match format {
         OutputFormat::Yaml => serialize_yaml(repo),
-        OutputFormat::PseudoJson => render_json_like_readable(repo),
-        OutputFormat::Json => serialize_json(repo),
-        OutputFormat::PseudoXml => render_pseudo_xml(repo),
+        OutputFormat::Json => render_json_like_readable(repo),
+        OutputFormat::Xml => render_pseudo_xml(repo),
     }
 }
 
 fn serialize_yaml(repo: &RepoRepresentation) -> Result<String> {
-    serde_yaml::to_string(repo).context("Failed to serialize to YAML")
+    let mut output = String::new();
+
+    writeln!(output, "directory: {}", yaml_escape_simple(&repo.directory))?;
+
+    write_yaml_literal(&mut output, "directory_structure", &repo.directory_structure, 0)?;
+
+    writeln!(output, "content:")?;
+    for file in &repo.contents {
+        writeln!(output, "  - full_path: {}", yaml_escape_simple(&file.full_path))?;
+        write_yaml_literal(&mut output, "content", &file.content, 2)?;
+    }
+
+    Ok(output)
+}
+
+/// Writes a field as a YAML literal block (|) with proper indentation
+fn write_yaml_literal(output: &mut String, field_name: &str, content: &str, indent_level: usize) -> Result<()> {
+    let indent = "  ".repeat(indent_level);
+    let content_indent = "  ".repeat(indent_level + 1);
+
+    writeln!(output, "{}{}: |", indent, field_name)?;
+    for line in content.lines() {
+        writeln!(output, "{}{}", content_indent, line)?;
+    }
+    if !content.is_empty() && !content.ends_with('\n') {
+        writeln!(output, "{}", content_indent)?;
+    }
+
+    Ok(())
+}
+
+/// Escapes a string for YAML if needed (for simple strings without newlines)
+fn yaml_escape_simple(s: &str) -> String {
+    if s.is_empty() || s.contains(['\n', ':', '#', '\'', '"', '|', '>', '[', ']', '{', '}'])
+        || s.starts_with([' ', '-', '?', '@', '`'])
+        || s.ends_with(' ')
+    {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        s.to_string()
+    }
 }
 
 fn serialize_json(repo: &RepoRepresentation) -> Result<String> {
@@ -142,6 +180,7 @@ mod tests {
     fn test_render_yaml() {
         let repo = create_test_repo();
         let output = render(OutputFormat::Yaml, &repo).unwrap();
+        println!("YAML output:\n{}", output);
         assert!(output.contains("directory: my_project"));
         assert!(output.contains("full_path: main.rs"));
         assert!(output.contains("content: |"));
@@ -150,7 +189,7 @@ mod tests {
     #[test]
     fn test_render_pseudo_json_readable() {
         let repo = create_test_repo();
-        let output = render(OutputFormat::PseudoJson, &repo).unwrap();
+        let output = render(OutputFormat::Json, &repo).unwrap();
 
         assert!(output.contains(r#""directory": "my_project""#));
         // Check for triple-quote-delimited blocks
@@ -166,26 +205,10 @@ fn main() {
 """"#));
     }
 
-    // NEW test for valid JSON
-    #[test]
-    fn test_render_json_valid() {
-        let repo = create_test_repo();
-        let output = render(OutputFormat::Json, &repo).unwrap();
-
-        // Check for standard JSON structure
-        assert!(output.contains(r#""directory": "my_project""#));
-        // Check for standard JSON string with escaped newlines
-        assert!(output.contains(r#""directory_structure": ".\n└── main.rs""#));
-        assert!(output.contains(r#""full_path": "main.rs""#));
-        assert!(output.contains(r#""content": "fn main() {\n    println!(\"Hello, world!\");\n}""#));
-        assert!(output.contains(r#""full_path": "empty.txt""#));
-        assert!(output.contains(r#""content": """#));
-    }
-
     #[test]
     fn test_render_pseudo_xml() {
         let repo = create_test_repo();
-        let output = render(OutputFormat::PseudoXml, &repo).unwrap();
+        let output = render(OutputFormat::Xml, &repo).unwrap();
 
         assert!(output.contains("<repo-to-text>"));
         assert!(output.contains("Directory: my_project"));

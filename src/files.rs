@@ -24,9 +24,12 @@ pub fn is_binary_or_image(path: &Path) -> Result<bool> {
 pub fn read_file_contents(path: &Path) -> Result<String> {
     let bytes = fs::read(path)?;
 
-    // Try efficient conversion first, fall back to lossy if needed
-    String::from_utf8(bytes)
-        .or_else(|e| Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()))
+    let content = String::from_utf8(bytes)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).to_string());
+
+    let normalized_content = format!("{}\n", content.trim_end());
+
+    Ok(normalized_content)
 }
 
 #[cfg(test)]
@@ -197,7 +200,8 @@ mod tests {
         let text_file = create_test_file(&temp_dir, "test.txt", content.as_bytes());
 
         let result = read_file_contents(&text_file).unwrap();
-        assert_eq!(result, content);
+        // FIX: The function now guarantees a trailing newline.
+        assert_eq!(result, format!("{}\n", content));
     }
 
     #[test]
@@ -208,9 +212,10 @@ mod tests {
         let binary_file = create_test_file(&temp_dir, "test.bin", &invalid_bytes);
 
         let result = read_file_contents(&binary_file).unwrap();
-        // Should use lossy conversion
+        // Should use lossy conversion. These assertions are still valid.
         assert!(result.contains("Hello"));
         assert!(result.contains('\u{FFFD}')); // Replacement character
+        assert!(result.ends_with('\n'));
     }
 
     #[test]
@@ -219,7 +224,8 @@ mod tests {
         let empty_file = create_test_file(&temp_dir, "empty.txt", b"");
 
         let result = read_file_contents(&empty_file).unwrap();
-        assert_eq!(result, "");
+        // FIX: An empty file becomes a single newline.
+        assert_eq!(result, "\n");
     }
 
     #[test]
@@ -238,8 +244,9 @@ mod tests {
         let text_file = create_test_file(&temp_dir, "multiline.txt", content.as_bytes());
 
         let result = read_file_contents(&text_file).unwrap();
-        assert_eq!(result, content);
-        assert_eq!(result.lines().count(), 3);
+        // FIX: The function now guarantees a single trailing newline.
+        assert_eq!(result, format!("{}\n", content));
+        assert_eq!(result.lines().count(), 3); // lines() ignores trailing newline
     }
 
     #[test]
@@ -249,7 +256,8 @@ mod tests {
         let text_file = create_test_file(&temp_dir, "special.txt", content.as_bytes());
 
         let result = read_file_contents(&text_file).unwrap();
-        assert_eq!(result, content);
+        // FIX: The function now guarantees a trailing newline.
+        assert_eq!(result, format!("{}\n", content));
     }
 
     #[test]
@@ -259,8 +267,9 @@ mod tests {
         let large_file = create_test_file(&temp_dir, "large.txt", content.as_bytes());
 
         let result = read_file_contents(&large_file).unwrap();
-        assert_eq!(result.len(), 10000);
-        assert_eq!(result, content);
+        // FIX: Length is now +1 for the added newline.
+        assert_eq!(result.len(), 10001);
+        assert_eq!(result, format!("{}\n", content));
     }
 
     #[test]

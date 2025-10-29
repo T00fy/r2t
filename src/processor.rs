@@ -376,7 +376,7 @@ fn build_ptree_recursive(
 mod tests {
     use super::*;
     use mockall::mock;
-    use crate::cli::FormatArg::{PseudoXml};
+    use crate::cli::FormatArg::{Xml};
 
     // Helper function to create a test config
     fn create_test_config(
@@ -384,7 +384,7 @@ mod tests {
         ignore_content: Vec<&str>,
     ) -> Config {
         Config {
-            format: Some(PseudoXml),
+            format: Some(Xml),
             ignore_tree_and_content: ignore_tree_and_content
                 .into_iter()
                 .map(String::from)

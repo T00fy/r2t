@@ -6,11 +6,10 @@ It is a Rust rewrite inspired by the original Python [repo-to-text](https://gith
 
 ## Key Features
 
--   **Flexible Output Formats:** Generate output in multiple formats:
-    -   `yaml` (default): Clean, standard YAML output.
-    -   `json`: Strict, valid JSON for machine readability.
-    -   `pseudo-json`: A highly readable JSON-like format using multi-line strings.
-    -   `pseudo-xml`: The original, LLM-friendly pseudo-XML format.
+-   **Flexible Output Formats:** Generate output in multiple formats. These formats are not strict, and are more akin to a pseudo format for better output to an LLM:
+    -   `yaml` (default): Clean, standard YAML-like output.
+    -   `json`: JSON-like output.
+    -   `xml`: The original repo-to-text output, XML-like.
 -   **Smart Filtering:**
     -   Respects `.gitignore` rules by default.
     -   Automatically detects and excludes binary files like images, archives, and executables (while intelligently including text-based vector graphics like SVG).
@@ -63,7 +62,7 @@ Arguments:
 
 Options:
   -o, --output-dir <OUTPUT_DIR>  Directory to save the output file. Defaults to the input directory
-      --format <FORMAT>          The output format for the final text file [possible values: yaml, json, pseudo-json, pseudo-xml]
+      --format <FORMAT>          The output format for the final text file [possible values: yaml, json, xml]
       --stdout                   Output the result to stdout instead of a file
       --no-gitignore             Do not respect .gitignore files for filtering
       --skip-tests               Skip including the content of test files and inline test modules
@@ -75,12 +74,7 @@ Options:
 
 **Examples:**
 
--   **Output to terminal in the readable pseudo-json format:**
-    ```bash
-    r2t --format pseudo-json --stdout
-    ```
-
--   **Create a valid, standard JSON file:**
+-   **Create a JSON-like format file:**
     ```bash
     r2t --format json
     ```
@@ -120,7 +114,7 @@ The default configuration looks like this:
 # r2t settings file - https://github.com/T00fy/r2t
 # Syntax: gitignore-style glob patterns
 
-# The output format. Can be: yaml, json, pseudo-json, pseudo-xml
+# The output format. Can be: yaml, json, xml
 # Defaults to yaml if not specified.
 # format: yaml
 

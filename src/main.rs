@@ -19,8 +19,7 @@ use crate::processor::DirectoryProcessor;
 fn determine_format(cli_format: Option<FormatArg>, config_format: Option<FormatArg>) -> OutputFormat {
     match cli_format.or(config_format) {
         Some(FormatArg::Json) => OutputFormat::Json,
-        Some(FormatArg::PseudoJson) => OutputFormat::PseudoJson,
-        Some(FormatArg::PseudoXml) => OutputFormat::PseudoXml,
+        Some(FormatArg::Xml) => OutputFormat::Xml,
         _ => OutputFormat::Yaml,
     }
 }
@@ -102,14 +101,8 @@ fn main() -> Result<()> {
         }
 
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        
-        let extension = match output_format {
-            OutputFormat::Json => "json",
-            OutputFormat::Yaml => "yaml",
-            _ => "txt", // PseudoJson and PseudoXml get .txt
-        };
 
-        let filename = format!("repo-to-text_{}.{}", timestamp, extension);
+        let filename = format!("repo-to-text_{}.txt", timestamp);
         let output_path = output_dir.join(filename);
 
         fs::write(&output_path, &final_output)

@@ -77,7 +77,7 @@ fn contains_none(strings: &[&str]) -> impl Predicate<str> {
 struct FormatExpectations {
     yaml: Vec<&'static str>,
     json: Vec<&'static str>,
-    pseudo_xml: Vec<&'static str>,
+    xml: Vec<&'static str>,
 }
 
 impl FormatExpectations {
@@ -85,7 +85,7 @@ impl FormatExpectations {
         Self {
             yaml: Vec::new(),
             json: Vec::new(),
-            pseudo_xml: Vec::new(),
+            xml: Vec::new(),
         }
     }
 
@@ -99,8 +99,8 @@ impl FormatExpectations {
         self
     }
 
-    fn pseudo_xml(mut self, checks: &[&'static str]) -> Self {
-        self.pseudo_xml.extend_from_slice(checks);
+    fn xml(mut self, checks: &[&'static str]) -> Self {
+        self.xml.extend_from_slice(checks);
         self
     }
 }
@@ -113,7 +113,7 @@ where
     for (format, checks) in [
         ("yaml", &expectations.yaml),
         ("json", &expectations.json),
-        ("pseudo-xml", &expectations.pseudo_xml),
+        ("xml", &expectations.xml),
     ] {
         let dir = tempdir()?;
         setup(dir.path())?;
@@ -141,16 +141,15 @@ fn test_cli_basic_run_default_yaml() -> TestResult {
         contains_all(&[
             "directory:",
             "directory_structure: |",
-            "full_path: src/main.rs",
-            "content: fn main() {}",
-            "full_path: README.md",
-            "content: This is a test.",
+            r#"  - full_path: README.md
+    content: |
+      This is a test."#,
+            r#"  - full_path: src/main.rs
+    content: |
+      fn main() {}"#,
         ])
             .and(predicate::str::is_match(r"(?m)^\s*[├└]─ .gitignore$").unwrap())
-            .and(contains_none(&[
-                "full_path: .gitignore",
-                "output.log",
-            ])),
+            .and(contains_none(&["full_path: .gitignore", "output.log"])),
     );
 
     Ok(())
@@ -165,22 +164,22 @@ fn test_cli_no_gitignore_flag() -> TestResult {
     fs::write(root.join("ignored.txt"), "I should be ignored")?;
     create_gitignore(root, "ignored.txt\n")?;
 
-    r2t_cmd(root)?.assert().success().stdout(
-        contains_all(&["not_ignored.txt", "I am here"]).and(contains_none(&[
-            "full_path: ignored.txt",
-            "I should be ignored",
-        ])),
-    );
+    r2t_cmd(root)?
+        .assert()
+        .success()
+        .stdout(contains_all(&["not_ignored.txt"]).and(contains_none(&["full_path: ignored.txt"])));
 
     r2t_cmd(root)?
         .arg("--no-gitignore")
         .assert()
         .success()
         .stdout(contains_all(&[
-            "not_ignored.txt",
-            "I am here",
-            "full_path: ignored.txt",
-            "content: I should be ignored",
+            r#"  - full_path: ignored.txt
+    content: |
+      I should be ignored"#,
+            r#"  - full_path: not_ignored.txt
+    content: |
+      I am here"#,
         ]));
 
     Ok(())
@@ -206,7 +205,9 @@ ignore-content:
     )?;
 
     r2t_cmd(root)?.assert().success().stdout(
-        contains_all(&["full_path: src/main.rs", "content: fn main() {}"])
+        contains_all(&[r#"  - full_path: src/main.rs
+    content: |
+      fn main() {}"#])
             .and(predicate::str::is_match(r"(?m)^\s*[├└]─ README.md$").unwrap())
             .and(contains_none(&[
                 "docs/",
@@ -229,7 +230,9 @@ fn test_binary_file_exclusion() -> TestResult {
     fs::write(root.join("icon.svg"), "<svg></svg>")?;
 
     r2t_cmd(root)?.assert().success().stdout(
-        contains_all(&["full_path: icon.svg", "content: <svg></svg>"])
+        contains_all(&[r#"  - full_path: icon.svg
+    content: |
+      <svg></svg>"#])
             .and(predicate::str::contains("logo.png").not()),
     );
 
@@ -259,10 +262,12 @@ fn test_skip_tests_go_and_java() -> TestResult {
 
     // Without --skip-tests: all files should be present
     r2t_cmd(root)?.assert().success().stdout(contains_all(&[
-        "full_path: main_test.go",
-        "content: package main_test",
-        "full_path: src/test/java/AppTest.java",
-        "content: public class AppTest {}",
+        r#"  - full_path: main_test.go
+    content: |
+      package main_test"#,
+        r#"  - full_path: src/test/java/AppTest.java
+    content: |
+      public class AppTest {}"#,
     ]));
 
     // With --skip-tests: test files appear in tree but not in content
@@ -272,10 +277,12 @@ fn test_skip_tests_go_and_java() -> TestResult {
         .success()
         .stdout(
             contains_all(&[
-                "full_path: main.go",
-                "content: package main",
-                "full_path: src/main/java/App.java",
-                "content: public class App {}",
+                r#"  - full_path: main.go
+    content: |
+      package main"#,
+                r#"  - full_path: src/main/java/App.java
+    content: |
+      public class App {}"#,
                 "main_test.go",
                 "AppTest.java",
             ])
@@ -295,7 +302,8 @@ fn test_skip_tests_rust() -> TestResult {
     let dir = tempdir()?;
     let root = dir.path();
 
-    let rust_content = "pub fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn it_works() {}\n}";
+    let rust_content =
+        "pub fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn it_works() {}\n}";
     fs::write(root.join("lib.rs"), rust_content)?;
 
     r2t_cmd(root)?.assert().success().stdout(contains_all(&[
@@ -331,26 +339,33 @@ fn test_all_formats_comprehensive() -> TestResult {
         },
         FormatExpectations::new()
             .yaml(&[
-                "directory:",
-                "directory_structure: |",
-                "full_path: src/lib.rs",
-                "content: |",
-                "    pub fn test() {",
-                "        // a comment",
-                "    }",
+                r#"  - full_path: README.md
+    content: |
+      # Project"#,
+                r#"  - full_path: src/lib.rs
+    content: |
+      pub fn test() {
+          // a comment
+      }"#,
             ])
             .json(&[
-                r#""directory":"#,
-                r#""content": "pub fn test() {\n    // a comment\n}""#,
+                r#""full_path": "README.md""#,
+                r#""content": """
+# Project
+""""#,
+                r#""full_path": "src/lib.rs""#,
+                r#""content": """
+pub fn test() {
+    // a comment
+}
+""""#,
             ])
-            .pseudo_xml(&[
-                "<repo-to-text>",
-                "Directory:",
-                "<directory_structure>",
+            .xml(&[
+                "<content full_path=\"README.md\">",
+                "# Project\n",
+                "</content>",
                 "<content full_path=\"src/lib.rs\">",
-                "pub fn test() {",
-                "    // a comment",
-                "}",
+                "pub fn test() {\n    // a comment\n}\n",
                 "</content>",
             ]),
     )
@@ -368,11 +383,10 @@ fn test_format_flags_basic() -> TestResult {
         .assert()
         .success()
         .stdout(contains_all(&[
-            "directory:",
             "full_path: a.txt",
-            "content: |",
-            "  Hello",
-            "  World",
+            r#"content: |
+      Hello
+      World"#,
         ]));
 
     r2t_cmd(root)?
@@ -380,34 +394,21 @@ fn test_format_flags_basic() -> TestResult {
         .arg("json")
         .assert()
         .success()
-        .stdout(contains_all(&[
-            r#""directory":"#,
-            r#""full_path": "a.txt""#,
-            r#""content": "Hello\nWorld""#,
-        ]));
-
-    r2t_cmd(root)?
-        .arg("--format")
-        .arg("pseudo-json")
-        .assert()
-        .success()
         .stdout(
             contains_all(&[r#""directory":"#, r#""full_path": "a.txt""#]).and(
-                predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*World\s*""""#).unwrap(),
+                predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*World\s*\n\s*""""#)
+                    .unwrap(),
             ),
         );
 
     r2t_cmd(root)?
         .arg("--format")
-        .arg("pseudo-xml")
+        .arg("xml")
         .assert()
         .success()
         .stdout(contains_all(&[
-            "<repo-to-text>",
-            "Directory:",
             "<content full_path=\"a.txt\">",
-            "Hello",
-            "World",
+            "Hello\nWorld\n",
             "</content>",
         ]));
 
@@ -422,59 +423,40 @@ fn test_format_precedence() -> TestResult {
 
     create_r2t_config(root, "format: json")?;
 
-    r2t_cmd(root)?
-        .assert()
-        .success()
-        .stdout(contains_all(&[
-            r#""directory":"#,
-            r#""full_path": "a.txt""#,
-            r#""content": "Hello""#,
-        ]));
+    r2t_cmd(root)?.assert().success().stdout(
+        contains_all(&[r#""directory":"#, r#""full_path": "a.txt""#])
+            .and(predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*\n\s*""""#).unwrap()),
+    );
 
     r2t_cmd(root)?
         .arg("--format")
-        .arg("pseudo-json")
+        .arg("json")
         .assert()
         .success()
         .stdout(
             contains_all(&[r#""directory":"#, r#""full_path": "a.txt""#])
-                .and(predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*""""#).unwrap()),
+                .and(predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*\n\s*""""#).unwrap()),
         );
 
     Ok(())
 }
 
 #[test]
-fn test_file_output_extensions() -> TestResult {
-    let proj_dir = tempdir()?;
-    fs::write(proj_dir.path().join("a.txt"), "data")?;
-
-    let test_cases = [
-        ("yaml", "yaml"),
-        ("json", "json"),
-        ("pseudo-json", "txt"),
-        ("pseudo-xml", "txt"),
-    ];
-
-    for (format, expected_ext) in test_cases {
-        let temp_output_dir = tempdir()?;
-
-        Command::cargo_bin("r2t")?
-            .arg(proj_dir.path())
-            .arg("--output-dir")
-            .arg(temp_output_dir.path())
-            .arg("--format")
-            .arg(format)
-            .assert()
-            .success();
-
-        assert!(
-            find_file_with_extension(temp_output_dir.path(), expected_ext),
-            "Expected to find .{} file for format '{}'",
-            expected_ext,
-            format
-        );
-    }
+fn test_yaml_code_blocks_must_be_literals() -> TestResult {
+    let fixture_dir = Path::new("tests/fixtures/normalization");
+    r2t_cmd(fixture_dir)?
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            "  - full_path: README1.md",
+            "    content: |",
+            "      This is a test",
+            "      The output should be good and not have newlines everywhere",
+            "      Blah blah blah",
+            "  - full_path: README2.md",
+            "      This is another test",
+            "      The line endings should also be good here",
+        ]));
 
     Ok(())
 }
