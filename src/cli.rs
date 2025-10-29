@@ -1,5 +1,17 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use serde::Deserialize;
 use std::path::PathBuf;
+
+#[derive(ValueEnum, Clone, Debug, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormatArg {
+    Yaml,
+    Json,
+    /// Real json is actually quite hard to read with multi-line strings. This pseudo format uses triple quotes to handle it instead
+    PseudoJson,
+    /// More a pseudo-xml format. Used by the original repo-to-text
+    PseudoXml,
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -11,6 +23,10 @@ pub struct Cli {
     /// Directory to save the output file. Defaults to the input directory.
     #[arg(short, long)]
     pub output_dir: Option<PathBuf>,
+
+    /// The output format for the final text file.
+    #[arg(long, value_enum)]
+    pub format: Option<FormatArg>,
 
     /// Output the result to stdout instead of a file.
     #[arg(long)]
@@ -25,7 +41,7 @@ pub struct Cli {
     pub skip_tests: bool,
 
     /// Create a default .r2t.yaml settings file in the current directory.
-    #[arg(long, conflicts_with_all = &["path", "output_dir", "stdout", "no_gitignore", "skip_tests"])]
+    #[arg(long, conflicts_with_all = &["path", "output_dir", "stdout", "no_gitignore", "skip_tests", "format"])]
     pub create_settings: bool,
 
     /// Use with --create-settings to create a global configuration file.

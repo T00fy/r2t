@@ -2,290 +2,480 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
 
-#[test]
-fn test_cli_basic_run() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    let proj_root = dir.path();
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+const MAIN_RS_CONTENT: &str = "fn main() {}";
+const README_CONTENT: &str = "This is a test.";
+const GITIGNORE_CONTENT: &str = "*.log";
 
-    // Setup mock project
-    fs::create_dir(proj_root.join("src"))?;
-    fs::write(proj_root.join("src/main.rs"), "fn main() {}")?;
-    fs::write(proj_root.join("README.md"), "This is a test.")?;
-    fs::write(proj_root.join(".gitignore"), "*.log")?;
-    fs::write(proj_root.join("output.log"), "some log data")?;
-
+/// Creates a new r2t command with the given project root
+fn r2t_cmd(project_root: &Path) -> Result<Command, Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("r2t")?;
-    cmd.arg(proj_root.to_str().unwrap());
-    cmd.arg("--stdout");
+    cmd.arg(project_root.to_str().unwrap()).arg("--stdout");
+    Ok(cmd)
+}
 
-    cmd.assert()
-        .success()
-        .stdout(
-            predicate::str::contains("<repo-to-text>")
-                .and(predicate::str::contains("<directory_structure>"))
-                .and(predicate::str::contains("src/main.rs"))
-                .and(predicate::str::contains("fn main() {}"))
-                // .gitignore should be in the tree, but its content should NOT be.
-                .and(predicate::str::contains(".gitignore"))
-                .and(predicate::str::contains("*.log").not())
-                // With no custom config, README.md and its content should be present
-                .and(predicate::str::contains("README.md"))
-                .and(predicate::str::contains("This is a test."))
-                // .log is ignored by .gitignore, so it should be absent entirely
-                .and(predicate::str::contains("output.log").not()),
-        );
-
+/// Sets up a basic Rust project structure
+fn setup_basic_project(root: &Path) -> TestResult {
+    fs::create_dir(root.join("src"))?;
+    fs::write(root.join("src/main.rs"), MAIN_RS_CONTENT)?;
+    fs::write(root.join("README.md"), README_CONTENT)?;
     Ok(())
 }
 
-#[test]
-fn test_cli_no_gitignore_flag() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    let proj_root = dir.path();
-
-    // Setup mock project
-    fs::write(proj_root.join("not_ignored.txt"), "I am here")?;
-    fs::write(proj_root.join("ignored.txt"), "I should be ignored")?;
-    fs::write(proj_root.join(".gitignore"), "ignored.txt\n")?;
-
-    // 1. Run with default behavior (respect .gitignore)
-    let mut cmd = Command::cargo_bin("r2t")?;
-    cmd.arg(proj_root.to_str().unwrap());
-    cmd.arg("--stdout");
-
-    cmd.assert().success().stdout(
-        predicate::str::contains("not_ignored.txt")
-            .and(predicate::str::contains("I am here"))
-            // Check specifically that `ignored.txt` is not in the tree or content
-            .and(predicate::str::contains("├─ ignored.txt").not())
-            .and(predicate::str::contains("└─ ignored.txt").not())
-            .and(predicate::str::contains("<content full_path=\"ignored.txt\">").not())
-            .and(predicate::str::contains("I should be ignored").not()),
-    );
-
-    // 2. Run with --no-gitignore flag
-    let mut cmd2 = Command::cargo_bin("r2t")?;
-    cmd2.arg(proj_root.to_str().unwrap());
-    cmd2.arg("--stdout");
-    cmd2.arg("--no-gitignore");
-
-    cmd2.assert().success().stdout(
-        predicate::str::contains("not_ignored.txt")
-            .and(predicate::str::contains("I am here"))
-            // Check specifically that `ignored.txt` IS in the tree and content
-            .and(predicate::str::is_match(r"(?m)^[├└]─ ignored\.txt$").unwrap())
-            .and(predicate::str::contains("I should be ignored")),
-    );
-
+/// Creates a .gitignore file with the given patterns
+fn create_gitignore(root: &Path, patterns: &str) -> TestResult {
+    fs::write(root.join(".gitignore"), patterns)?;
     Ok(())
 }
 
-
-#[test]
-fn test_r2t_yaml_config_ignores() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    let proj_root = dir.path();
-
-    // Setup mock project
-    fs::create_dir(proj_root.join("src"))?;
-    fs::write(proj_root.join("src/main.rs"), "fn main() {}")?;
-    fs::write(proj_root.join("README.md"), "This is a test.")?;
-    fs::create_dir(proj_root.join("docs"))?;
-    fs::write(proj_root.join("docs/guide.md"), "A guide.")?;
-
-    // Create a custom config file
-    let config_content = r#"
-ignore-tree-and-content:
-  - "docs/"
-
-ignore-content:
-  - "README.md"
-"#;
-    fs::write(proj_root.join(".r2t.yaml"), config_content)?;
-
-    let mut cmd = Command::cargo_bin("r2t")?;
-    cmd.arg(proj_root.to_str().unwrap());
-    cmd.arg("--stdout");
-
-    cmd.assert()
-        .success()
-        .stdout(
-            // `docs/` should be completely ignored from tree and content
-            predicate::str::contains("docs/").not()
-                .and(predicate::str::contains("guide.md").not())
-                // `README.md` should be in the tree, but its content should be ignored
-                .and(predicate::str::contains("README.md"))
-                .and(predicate::str::contains("This is a test.").not())
-                // `src/main.rs` should be fully included
-                .and(predicate::str::contains("src/main.rs"))
-                .and(predicate::str::contains("fn main() {}")),
-        );
-
+/// Creates a .r2t.yaml config file with the given content
+fn create_r2t_config(root: &Path, config: &str) -> TestResult {
+    fs::write(root.join(".r2t.yaml"), config)?;
     Ok(())
 }
 
-#[test]
-fn test_binary_file_exclusion() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    let proj_root = dir.path();
-
-    // A tiny, valid PNG (1x1 pixel)
-    let png_data = [
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
-        0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
-        0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78,
-        0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
-        0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-    ];
-    fs::write(proj_root.join("logo.png"), &png_data)?;
-
-    // A valid SVG
-    fs::write(proj_root.join("icon.svg"), "<svg></svg>")?;
-
-    let mut cmd = Command::cargo_bin("r2t")?;
-    cmd.arg(proj_root.to_str().unwrap()).arg("--stdout");
-
-    cmd.assert()
-        .success()
-        .stdout(
-            // SVG should be included
-            predicate::str::contains("icon.svg")
-                .and(predicate::str::contains("<svg></svg>"))
-                // PNG should be completely excluded
-                .and(predicate::str::contains("logo.png").not())
-        );
-
-    Ok(())
+/// Checks if any file with the given extension exists in the directory
+fn find_file_with_extension(dir: &Path, extension: &str) -> bool {
+    fs::read_dir(dir)
+        .ok()
+        .and_then(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .find(|entry| {
+                    entry.path().is_file()
+                        && entry
+                        .path()
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        == Some(extension.trim_start_matches('.'))
+                })
+        })
+        .is_some()
 }
 
-#[test]
-fn test_skip_tests_go_and_java() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    let proj_root = dir.path();
-
-    // --- Setup mock project ---
-    // Go files
-    fs::write(proj_root.join("main.go"), "package main")?;
-    fs::write(proj_root.join("main_test.go"), "package main_test")?;
-
-    // Java files
-    let java_main = proj_root.join("src/main/java");
-    fs::create_dir_all(&java_main)?;
-    fs::write(java_main.join("App.java"), "public class App {}")?;
-
-    let java_test = proj_root.join("src/test/java");
-    fs::create_dir_all(&java_test)?;
-    fs::write(java_test.join("AppTest.java"), "public class AppTest {}")?;
-
-    let java_it = proj_root.join("src/testIntegration/java");
-    fs::create_dir_all(&java_it)?;
-    fs::write(java_it.join("IntegrationTest.java"), "public class IT {}")?;
-
-    let java_at = proj_root.join("src/testApplication/java");
-    fs::create_dir_all(&java_at)?;
-    fs::write(java_at.join("ApplicationTest.java"), "public class AT {}")?;
-
-    // --- 1. Run WITHOUT the flag (default behavior) ---
-    let mut cmd1 = Command::cargo_bin("r2t")?;
-    cmd1.arg(proj_root.to_str().unwrap()).arg("--stdout");
-
-    cmd1.assert().success().stdout(
-        predicate::str::contains("<content full_path=\"main_test.go\">")
-            .and(predicate::str::contains("package main_test"))
-            .and(predicate::str::contains("<content full_path=\"src/test/java/AppTest.java\">"))
-            .and(predicate::str::contains("public class AppTest {}"))
-            .and(predicate::str::contains("<content full_path=\"src/testIntegration/java/IntegrationTest.java\">"))
-            .and(predicate::str::contains("public class IT {}"))
-            .and(predicate::str::contains("<content full_path=\"src/testApplication/java/ApplicationTest.java\">"))
-            .and(predicate::str::contains("public class AT {}")),
-    );
-
-    // --- 2. Run WITH the flag ---
-    let mut cmd2 = Command::cargo_bin("r2t")?;
-    cmd2.arg(proj_root.to_str().unwrap()).arg("--stdout").arg("--skip-tests");
-
-    cmd2.assert().success().stdout(
-        // Verify production code is still present
-        predicate::str::contains("<content full_path=\"main.go\">")
-            .and(predicate::str::contains("package main"))
-            .and(predicate::str::contains("<content full_path=\"src/main/java/App.java\">"))
-            .and(predicate::str::contains("public class App {}"))
-
-            // Verify test files are in the tree
-            .and(predicate::str::contains("main_test.go"))
-            .and(predicate::str::contains("AppTest.java"))
-            .and(predicate::str::contains("IntegrationTest.java"))
-            .and(predicate::str::contains("ApplicationTest.java"))
-
-            // BUT their content is NOT present
-            .and(predicate::str::contains("<content full_path=\"main_test.go\">").not())
-            .and(predicate::str::contains("package main_test").not())
-            .and(predicate::str::contains("<content full_path=\"src/test/java/AppTest.java\">").not())
-            .and(predicate::str::contains("public class AppTest {}").not())
-            .and(predicate::str::contains("<content full_path=\"src/testIntegration/java/IntegrationTest.java\">").not())
-            .and(predicate::str::contains("public class IT {}").not())
-            .and(predicate::str::contains("<content full_path=\"src/testApplication/java/ApplicationTest.java\">").not())
-            .and(predicate::str::contains("public class AT {}").not())
-    );
-
-    Ok(())
+/// Builds a predicate that checks for all strings in the slice
+fn contains_all(strings: &[&str]) -> impl Predicate<str> {
+    strings
+        .iter()
+        .fold(predicate::always().boxed(), |acc, &s| {
+            acc.and(predicate::str::contains(s)).boxed()
+        })
 }
 
-#[test]
-fn test_skip_tests_rust() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    let proj_root = dir.path();
-
-    let rust_content = r#"
-pub fn production_function() -> bool {
-    true
+/// Builds a predicate that checks none of the strings are present
+fn contains_none(strings: &[&str]) -> impl Predicate<str> {
+    strings
+        .iter()
+        .fold(predicate::always().boxed(), |acc, &s| {
+            acc.and(predicate::str::contains(s).not()).boxed()
+        })
 }
 
+struct FormatExpectations {
+    yaml: Vec<&'static str>,
+    json: Vec<&'static str>,
+    pseudo_xml: Vec<&'static str>,
+}
 
-#[cfg(test)]
-mod tests {
-// This comment should be removed
-    use super::*;
+impl FormatExpectations {
+    fn new() -> Self {
+        Self {
+            yaml: Vec::new(),
+            json: Vec::new(),
+            pseudo_xml: Vec::new(),
+        }
+    }
 
-    #[test]
-    fn it_works() {
-        assert_eq!(production_function(), true);
+    fn yaml(mut self, checks: &[&'static str]) -> Self {
+        self.yaml.extend_from_slice(checks);
+        self
+    }
+
+    fn json(mut self, checks: &[&'static str]) -> Self {
+        self.json.extend_from_slice(checks);
+        self
+    }
+
+    fn pseudo_xml(mut self, checks: &[&'static str]) -> Self {
+        self.pseudo_xml.extend_from_slice(checks);
+        self
     }
 }
-// This comment should remain
-"#;
 
-    fs::write(proj_root.join("lib.rs"), rust_content)?;
+/// Tests a setup function across all three output formats
+fn test_all_formats<F>(setup: F, expectations: FormatExpectations) -> TestResult
+where
+    F: Fn(&Path) -> TestResult,
+{
+    for (format, checks) in [
+        ("yaml", &expectations.yaml),
+        ("json", &expectations.json),
+        ("pseudo-xml", &expectations.pseudo_xml),
+    ] {
+        let dir = tempdir()?;
+        setup(dir.path())?;
 
-    // --- 1. Run WITHOUT the flag ---
-    let mut cmd1 = Command::cargo_bin("r2t")?;
-    cmd1.arg(proj_root.to_str().unwrap()).arg("--stdout");
+        r2t_cmd(dir.path())?
+            .arg("--format")
+            .arg(format)
+            .assert()
+            .success()
+            .stdout(contains_all(checks));
+    }
+    Ok(())
+}
 
-    cmd1.assert().success().stdout(
-        predicate::str::contains("pub fn production_function()")
-            .and(predicate::str::contains("#[cfg(test)]"))
-            .and(predicate::str::contains("mod tests"))
-            .and(predicate::str::contains("it_works"))
+#[test]
+fn test_cli_basic_run_default_yaml() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    setup_basic_project(root)?;
+    create_gitignore(root, GITIGNORE_CONTENT)?;
+    fs::write(root.join("output.log"), "some log data")?;
+
+    r2t_cmd(root)?.assert().success().stdout(
+        contains_all(&[
+            "directory:",
+            "directory_structure: |",
+            "full_path: src/main.rs",
+            "content: fn main() {}",
+            "full_path: README.md",
+            "content: This is a test.",
+        ])
+            .and(predicate::str::is_match(r"(?m)^\s*[├└]─ .gitignore$").unwrap())
+            .and(contains_none(&[
+                "full_path: .gitignore",
+                "output.log",
+            ])),
     );
 
-    // --- 2. Run WITH the flag ---
-    let mut cmd2 = Command::cargo_bin("r2t")?;
-    cmd2.arg(proj_root.to_str().unwrap()).arg("--stdout").arg("--skip-tests");
+    Ok(())
+}
 
-    cmd2.assert().success().stdout(
-        // Verify production code is still present
-        predicate::str::contains("pub fn production_function()")
-            .and(predicate::str::contains("// This comment should remain"))
+#[test]
+fn test_cli_no_gitignore_flag() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
 
-            // Verify test code is GONE
-            .and(predicate::str::contains("#[cfg(test)]").not())
-            .and(predicate::str::contains("mod tests").not())
-            .and(predicate::str::contains("it_works").not())
-            .and(predicate::str::contains("// This comment should be removed").not())
+    fs::write(root.join("not_ignored.txt"), "I am here")?;
+    fs::write(root.join("ignored.txt"), "I should be ignored")?;
+    create_gitignore(root, "ignored.txt\n")?;
+
+    r2t_cmd(root)?.assert().success().stdout(
+        contains_all(&["not_ignored.txt", "I am here"]).and(contains_none(&[
+            "full_path: ignored.txt",
+            "I should be ignored",
+        ])),
     );
+
+    r2t_cmd(root)?
+        .arg("--no-gitignore")
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            "not_ignored.txt",
+            "I am here",
+            "full_path: ignored.txt",
+            "content: I should be ignored",
+        ]));
+
+    Ok(())
+}
+
+#[test]
+fn test_r2t_yaml_config_ignores() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    setup_basic_project(root)?;
+    fs::create_dir(root.join("docs"))?;
+    fs::write(root.join("docs/guide.md"), "A guide.")?;
+
+    create_r2t_config(
+        root,
+        r#"
+ignore-tree-and-content:
+  - "docs/"
+ignore-content:
+  - "README.md"
+"#,
+    )?;
+
+    r2t_cmd(root)?.assert().success().stdout(
+        contains_all(&["full_path: src/main.rs", "content: fn main() {}"])
+            .and(predicate::str::is_match(r"(?m)^\s*[├└]─ README.md$").unwrap())
+            .and(contains_none(&[
+                "docs/",
+                "guide.md",
+                "full_path: README.md",
+                "This is a test.",
+            ])),
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_binary_file_exclusion() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    let png_data = include_bytes!("fixtures/test.png");
+    fs::write(root.join("logo.png"), png_data)?;
+    fs::write(root.join("icon.svg"), "<svg></svg>")?;
+
+    r2t_cmd(root)?.assert().success().stdout(
+        contains_all(&["full_path: icon.svg", "content: <svg></svg>"])
+            .and(predicate::str::contains("logo.png").not()),
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_skip_tests_go_and_java() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    // Setup Go files
+    fs::write(root.join("main.go"), "package main")?;
+    fs::write(root.join("main_test.go"), "package main_test")?;
+
+    // Setup Java directory structure
+    let java_paths = [
+        ("src/main/java/App.java", "public class App {}"),
+        ("src/test/java/AppTest.java", "public class AppTest {}"),
+    ];
+
+    for (path, content) in &java_paths {
+        let full_path = root.join(path);
+        fs::create_dir_all(full_path.parent().unwrap())?;
+        fs::write(full_path, content)?;
+    }
+
+    // Without --skip-tests: all files should be present
+    r2t_cmd(root)?.assert().success().stdout(contains_all(&[
+        "full_path: main_test.go",
+        "content: package main_test",
+        "full_path: src/test/java/AppTest.java",
+        "content: public class AppTest {}",
+    ]));
+
+    // With --skip-tests: test files appear in tree but not in content
+    r2t_cmd(root)?
+        .arg("--skip-tests")
+        .assert()
+        .success()
+        .stdout(
+            contains_all(&[
+                "full_path: main.go",
+                "content: package main",
+                "full_path: src/main/java/App.java",
+                "content: public class App {}",
+                "main_test.go",
+                "AppTest.java",
+            ])
+                .and(contains_none(&[
+                    "full_path: main_test.go",
+                    "package main_test",
+                    "full_path: src/test/java/AppTest.java",
+                    "public class AppTest {}",
+                ])),
+        );
+
+    Ok(())
+}
+
+#[test]
+fn test_skip_tests_rust() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    let rust_content = "pub fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn it_works() {}\n}";
+    fs::write(root.join("lib.rs"), rust_content)?;
+
+    r2t_cmd(root)?.assert().success().stdout(contains_all(&[
+        "pub fn prod() {}",
+        "#[cfg(test)]",
+        "mod tests",
+        "it_works",
+    ]));
+
+    r2t_cmd(root)?
+        .arg("--skip-tests")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("pub fn prod() {}")
+                .and(contains_none(&["#[cfg(test)]", "mod tests", "it_works"])),
+        );
+
+    Ok(())
+}
+
+#[test]
+fn test_all_formats_comprehensive() -> TestResult {
+    test_all_formats(
+        |root| {
+            fs::create_dir(root.join("src"))?;
+            fs::write(
+                root.join("src/lib.rs"),
+                "pub fn test() {\n    // a comment\n}",
+            )?;
+            fs::write(root.join("README.md"), "# Project")?;
+            Ok(())
+        },
+        FormatExpectations::new()
+            .yaml(&[
+                "directory:",
+                "directory_structure: |",
+                "full_path: src/lib.rs",
+                "content: |",
+                "    pub fn test() {",
+                "        // a comment",
+                "    }",
+            ])
+            .json(&[
+                r#""directory":"#,
+                r#""content": "pub fn test() {\n    // a comment\n}""#,
+            ])
+            .pseudo_xml(&[
+                "<repo-to-text>",
+                "Directory:",
+                "<directory_structure>",
+                "<content full_path=\"src/lib.rs\">",
+                "pub fn test() {",
+                "    // a comment",
+                "}",
+                "</content>",
+            ]),
+    )
+}
+
+#[test]
+fn test_format_flags_basic() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+    fs::write(root.join("a.txt"), "Hello\nWorld")?;
+
+    r2t_cmd(root)?
+        .arg("--format")
+        .arg("yaml")
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            "directory:",
+            "full_path: a.txt",
+            "content: |",
+            "  Hello",
+            "  World",
+        ]));
+
+    r2t_cmd(root)?
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            r#""directory":"#,
+            r#""full_path": "a.txt""#,
+            r#""content": "Hello\nWorld""#,
+        ]));
+
+    r2t_cmd(root)?
+        .arg("--format")
+        .arg("pseudo-json")
+        .assert()
+        .success()
+        .stdout(
+            contains_all(&[r#""directory":"#, r#""full_path": "a.txt""#]).and(
+                predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*World\s*""""#).unwrap(),
+            ),
+        );
+
+    r2t_cmd(root)?
+        .arg("--format")
+        .arg("pseudo-xml")
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            "<repo-to-text>",
+            "Directory:",
+            "<content full_path=\"a.txt\">",
+            "Hello",
+            "World",
+            "</content>",
+        ]));
+
+    Ok(())
+}
+
+#[test]
+fn test_format_precedence() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+    fs::write(root.join("a.txt"), "Hello")?;
+
+    create_r2t_config(root, "format: json")?;
+
+    r2t_cmd(root)?
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            r#""directory":"#,
+            r#""full_path": "a.txt""#,
+            r#""content": "Hello""#,
+        ]));
+
+    r2t_cmd(root)?
+        .arg("--format")
+        .arg("pseudo-json")
+        .assert()
+        .success()
+        .stdout(
+            contains_all(&[r#""directory":"#, r#""full_path": "a.txt""#])
+                .and(predicate::str::is_match(r#"(?s)"content":\s*"""\s*Hello\s*""""#).unwrap()),
+        );
+
+    Ok(())
+}
+
+#[test]
+fn test_file_output_extensions() -> TestResult {
+    let proj_dir = tempdir()?;
+    fs::write(proj_dir.path().join("a.txt"), "data")?;
+
+    let test_cases = [
+        ("yaml", "yaml"),
+        ("json", "json"),
+        ("pseudo-json", "txt"),
+        ("pseudo-xml", "txt"),
+    ];
+
+    for (format, expected_ext) in test_cases {
+        let temp_output_dir = tempdir()?;
+
+        Command::cargo_bin("r2t")?
+            .arg(proj_dir.path())
+            .arg("--output-dir")
+            .arg(temp_output_dir.path())
+            .arg("--format")
+            .arg(format)
+            .assert()
+            .success();
+
+        assert!(
+            find_file_with_extension(temp_output_dir.path(), expected_ext),
+            "Expected to find .{} file for format '{}'",
+            expected_ext,
+            format
+        );
+    }
 
     Ok(())
 }

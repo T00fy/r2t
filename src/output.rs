@@ -1,43 +1,112 @@
-use crate::{files, stripper};
 use anyhow::{Context, Result};
+use serde::Serialize;
 use std::fmt::Write;
-use std::path::{Path, PathBuf};
 
-pub fn generate_output(
-    project_name: &str,
-    tree: &str,
-    files_to_include: &[PathBuf],
-    root_path: &Path,
-    skip_tests: bool,
-) -> Result<String> {
+#[derive(Serialize, Debug)]
+pub struct FileContent {
+    pub full_path: String,
+    pub content: String,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename = "repo-to-text")]
+pub struct RepoRepresentation {
+    pub directory: String,
+    pub directory_structure: String,
+    #[serde(rename = "content")]
+    pub contents: Vec<FileContent>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Yaml,
+    PseudoJson,
+    Json,
+    PseudoXml,
+}
+
+pub fn render(format: OutputFormat, repo: &RepoRepresentation) -> Result<String> {
+    match format {
+        OutputFormat::Yaml => serialize_yaml(repo),
+        OutputFormat::PseudoJson => render_json_like_readable(repo),
+        OutputFormat::Json => serialize_json(repo),
+        OutputFormat::PseudoXml => render_pseudo_xml(repo),
+    }
+}
+
+fn serialize_yaml(repo: &RepoRepresentation) -> Result<String> {
+    serde_yaml::to_string(repo).context("Failed to serialize to YAML")
+}
+
+fn serialize_json(repo: &RepoRepresentation) -> Result<String> {
+    serde_json::to_string_pretty(repo).context("Failed to serialize to JSON")
+}
+
+
+/// Renders a highly readable, but not strictly valid, JSON-like format.
+/// It uses triple-quotes for multi-line strings.
+fn render_json_like_readable(repo: &RepoRepresentation) -> Result<String> {
+    let mut output = String::new();
+
+    writeln!(output, "{{")?;
+    writeln!(output, "  \"directory\": {},", serde_json::to_string(&repo.directory)?)?;
+
+    writeln!(output, "  \"directory_structure\": \"\"\"")?;
+    write!(output, "{}", repo.directory_structure)?;
+    if !repo.directory_structure.is_empty() && !repo.directory_structure.ends_with('\n') {
+        writeln!(output)?;
+    }
+    writeln!(output, "\"\"\",")?;
+
+    writeln!(output, "  \"content\": [")?;
+    let num_files = repo.contents.len();
+    for (i, file) in repo.contents.iter().enumerate() {
+        writeln!(output, "    {{")?;
+        writeln!(output, "      \"full_path\": {},", serde_json::to_string(&file.full_path)?)?;
+        writeln!(output, "      \"content\": \"\"\"")?;
+        write!(output, "{}", file.content)?;
+        if !file.content.is_empty() && !file.content.ends_with('\n') {
+            writeln!(output)?;
+        }
+        writeln!(output, "\"\"\"")?;
+
+        if i < num_files - 1 {
+            writeln!(output, "    }},")?;
+        } else {
+            writeln!(output, "    }}")?;
+        }
+    }
+    writeln!(output, "  ]")?;
+    writeln!(output, "}}")?;
+
+    Ok(output)
+}
+
+/// Renders the output using the original pseudo-XML format.
+fn render_pseudo_xml(repo: &RepoRepresentation) -> Result<String> {
     let mut output = String::new();
 
     // Write header
     writeln!(output, "<repo-to-text>")?;
-    writeln!(output, "Directory: {}\n", project_name)?;
-    writeln!(output, "Directory Structure:")?;
+    writeln!(output, "Directory: {}", repo.directory)?;
+    writeln!(output, "\nDirectory Structure:")?;
     writeln!(output, "<directory_structure>")?;
-    write!(output, "{}", tree)?;
+    write!(output, "{}", &repo.directory_structure)?;
+    if !repo.directory_structure.ends_with('\n') {
+        writeln!(output)?;
+    }
     writeln!(output, "</directory_structure>")?;
 
-    // Write file contents
-    for file_path in files_to_include {
-        let relative_path = file_path
-            .strip_prefix(root_path)
-            .with_context(|| format!("Failed to strip prefix from: {:?}", file_path))?;
-
-        writeln!(output, "\n<content full_path=\"{}\">", relative_path.display())?;
-
-        let raw_content = files::read_file_contents(file_path)
-            .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
-
-        let content = if skip_tests {
-            stripper::strip_inline_tests(file_path, &raw_content)
-        } else {
-            raw_content
-        };
-
-        writeln!(output, "{}", content)?;
+    for file in &repo.contents {
+        writeln!(
+            output,
+            "\n<content full_path=\"{}\">",
+            file.full_path
+        )?;
+        write!(output, "{}", file.content)?;
+        if !file.content.is_empty() && !file.content.ends_with('\n') {
+            writeln!(output)?;
+        }
         writeln!(output, "</content>")?;
     }
 
@@ -45,260 +114,88 @@ pub fn generate_output(
 
     Ok(output)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
 
-    /// Helper function to create a temporary file with content
-    fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
-        let file_path = dir.join(name);
-        fs::write(&file_path, content).unwrap();
-        file_path
+    fn create_test_repo() -> RepoRepresentation {
+        RepoRepresentation {
+            directory: "my_project".to_string(),
+            directory_structure: ".
+└── main.rs"
+                .to_string(),
+            contents: vec![
+                FileContent {
+                    full_path: "main.rs".to_string(),
+                    content: "fn main() {\n    println!(\"Hello, world!\");\n}".to_string(),
+                },
+                FileContent {
+                    full_path: "empty.txt".to_string(),
+                    content: "".to_string(),
+                },
+            ],
+        }
     }
 
     #[test]
-    fn test_output_contains_all_required_sections() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let file_path = create_test_file(root_path, "test.txt", "content");
-
-        let output = generate_output(
-            "my_project",
-            "any tree structure",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        assert!(output.starts_with("<repo-to-text>\n"));
-        assert!(output.contains("Directory: my_project\n"));
-        assert!(output.contains("Directory Structure:\n"));
-        assert!(output.contains("<directory_structure>\n"));
-        assert!(output.contains("</directory_structure>\n"));
-        assert!(output.ends_with("</repo-to-text>\n"));
+    fn test_render_yaml() {
+        let repo = create_test_repo();
+        let output = render(OutputFormat::Yaml, &repo).unwrap();
+        assert!(output.contains("directory: my_project"));
+        assert!(output.contains("full_path: main.rs"));
+        assert!(output.contains("content: |"));
     }
 
     #[test]
-    fn test_tree_string_is_included_verbatim() {
-        let temp_dir = TempDir::new().unwrap();
-        let custom_tree = "my custom tree format\nwith multiple lines\n";
+    fn test_render_pseudo_json_readable() {
+        let repo = create_test_repo();
+        let output = render(OutputFormat::PseudoJson, &repo).unwrap();
 
-        let output = generate_output(
-            "project",
-            custom_tree,
-            &[],
-            temp_dir.path(),
-            false
-        ).unwrap();
+        assert!(output.contains(r#""directory": "my_project""#));
+        // Check for triple-quote-delimited blocks
+        assert!(output.contains(r#""directory_structure": """
+.
+└── main.rs
+""","#));
+        assert!(output.contains(r#""full_path": "main.rs""#));
+        assert!(output.contains(r#""content": """
+fn main() {
+    println!("Hello, world!");
+}
+""""#));
+    }
 
-        assert!(output.contains(custom_tree));
+    // NEW test for valid JSON
+    #[test]
+    fn test_render_json_valid() {
+        let repo = create_test_repo();
+        let output = render(OutputFormat::Json, &repo).unwrap();
+
+        // Check for standard JSON structure
+        assert!(output.contains(r#""directory": "my_project""#));
+        // Check for standard JSON string with escaped newlines
+        assert!(output.contains(r#""directory_structure": ".\n└── main.rs""#));
+        assert!(output.contains(r#""full_path": "main.rs""#));
+        assert!(output.contains(r#""content": "fn main() {\n    println!(\"Hello, world!\");\n}""#));
+        assert!(output.contains(r#""full_path": "empty.txt""#));
+        assert!(output.contains(r#""content": """#));
     }
 
     #[test]
-    fn test_single_file_content_is_included() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let file_content = "fn main() {\n    println!(\"Hello\");\n}";
-        let file_path = create_test_file(root_path, "main.rs", file_content);
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        assert!(output.contains("<content full_path=\"main.rs\">"));
-        assert!(output.contains(file_content));
-        assert!(output.contains("\n</content>\n"));
-    }
-
-    #[test]
-    fn test_multiple_files_in_order() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let file1 = create_test_file(root_path, "a.txt", "First");
-        let file2 = create_test_file(root_path, "b.txt", "Second");
-        let file3 = create_test_file(root_path, "c.txt", "Third");
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file1, file2, file3],
-            root_path,
-            false
-        ).unwrap();
-
-        let pos_a = output.find("full_path=\"a.txt\"").unwrap();
-        let pos_b = output.find("full_path=\"b.txt\"").unwrap();
-        let pos_c = output.find("full_path=\"c.txt\"").unwrap();
-
-        assert!(pos_a < pos_b && pos_b < pos_c);
-        assert!(output.contains("First"));
-        assert!(output.contains("Second"));
-        assert!(output.contains("Third"));
-    }
-
-    #[test]
-    fn test_nested_paths_use_relative_paths() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let subdir = root_path.join("src").join("models");
-        fs::create_dir_all(&subdir).unwrap();
-
-        let file_path = create_test_file(&subdir, "user.rs", "struct User {}");
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        // Check for relative path (handle both Unix and Windows separators)
-        let has_unix_path = output.contains("full_path=\"src/models/user.rs\"");
-        let has_windows_path = output.contains("full_path=\"src\\models\\user.rs\"");
-        assert!(has_unix_path || has_windows_path);
-    }
-
-    #[test]
-    fn test_empty_file_list() {
-        let temp_dir = TempDir::new().unwrap();
-
-        let output = generate_output(
-            "empty_project",
-            "empty tree",
-            &[],
-            temp_dir.path(),
-            false
-        ).unwrap();
+    fn test_render_pseudo_xml() {
+        let repo = create_test_repo();
+        let output = render(OutputFormat::PseudoXml, &repo).unwrap();
 
         assert!(output.contains("<repo-to-text>"));
-        assert!(output.contains("Directory: empty_project"));
-        assert!(!output.contains("<content"));
-    }
-
-    #[test]
-    fn test_empty_file_content() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let file_path = create_test_file(root_path, "empty.txt", "");
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        // Empty file has content tags with just newlines between them
-        assert!(output.contains("<content full_path=\"empty.txt\">"));
+        assert!(output.contains("Directory: my_project"));
+        assert!(output.contains("<directory_structure>"));
+        assert!(output.contains(".
+└── main.rs"));
+        assert!(output.contains("</directory_structure>"));
+        assert!(output.contains("<content full_path=\"main.rs\">"));
+        assert!(output.contains("println!(\"Hello, world!\");"));
         assert!(output.contains("</content>"));
-    }
-
-    #[test]
-    fn test_unicode_content() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let unicode = "Hello 世界 🦀 Здравствуй мир";
-        let file_path = create_test_file(root_path, "unicode.txt", unicode);
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        assert!(output.contains(unicode));
-    }
-
-    #[test]
-    fn test_special_xml_characters_not_escaped() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let content = "<tag> & \"quotes\" </tag>";
-        let file_path = create_test_file(root_path, "special.txt", content);
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        // Function doesn't escape - content appears as-is
-        assert!(output.contains(content));
-    }
-
-    #[test]
-    fn test_filename_with_spaces() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-
-        let file_path = create_test_file(root_path, "my file.txt", "content");
-
-        let output = generate_output(
-            "project",
-            "tree",
-            &[file_path],
-            root_path,
-            false
-        ).unwrap();
-
-        assert!(output.contains("full_path=\"my file.txt\""));
-    }
-
-    #[test]
-    fn test_nonexistent_file_returns_error() {
-        let temp_dir = TempDir::new().unwrap();
-        let root_path = temp_dir.path();
-        let nonexistent = root_path.join("missing.txt");
-
-        let result = generate_output(
-            "project",
-            "tree",
-            &[nonexistent],
-            root_path,
-            false
-        );
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("Failed to read file"));
-    }
-
-    #[test]
-    fn test_file_outside_root_returns_error() {
-        let temp_dir1 = TempDir::new().unwrap();
-        let temp_dir2 = TempDir::new().unwrap();
-
-        let file_in_dir2 = create_test_file(temp_dir2.path(), "file.txt", "content");
-
-        // Try to use file from dir2 with root from dir1
-        let result = generate_output(
-            "project",
-            "tree",
-            &[file_in_dir2],
-            temp_dir1.path(),
-            false
-        );
-
-        // strip_prefix should fail
-        assert!(result.is_err());
+        assert!(output.contains("<content full_path=\"empty.txt\">"));
     }
 }

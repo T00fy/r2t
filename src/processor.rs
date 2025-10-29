@@ -62,6 +62,7 @@ pub trait BinaryChecker {
 }
 
 /// Production implementation of DirectoryWalker using the `ignore` crate.
+#[derive(Default)]
 pub struct IgnoreWalker;
 
 impl DirectoryWalker for IgnoreWalker {
@@ -84,6 +85,7 @@ impl DirectoryWalker for IgnoreWalker {
 }
 
 /// Production implementation of BinaryChecker.
+#[derive(Default)]
 pub struct FileBinaryChecker;
 
 impl BinaryChecker for FileBinaryChecker {
@@ -93,26 +95,39 @@ impl BinaryChecker for FileBinaryChecker {
 }
 
 /// Main processor struct with dependency injection for testability.
-pub struct DirectoryProcessor {
-    walker: Box<dyn DirectoryWalker>,
-    binary_checker: Box<dyn BinaryChecker>,
+pub struct DirectoryProcessor<W = IgnoreWalker, B = FileBinaryChecker>
+where
+    W: DirectoryWalker,
+    B: BinaryChecker,
+{
+    walker: W,
+    binary_checker: B,
+}
+
+impl Default for DirectoryProcessor {
+    fn default() -> Self {
+        Self {
+            walker: IgnoreWalker,
+            binary_checker: FileBinaryChecker,
+        }
+    }
 }
 
 impl DirectoryProcessor {
     /// Creates a new processor with production dependencies.
     pub fn new() -> Self {
-        Self {
-            walker: Box::new(IgnoreWalker),
-            binary_checker: Box::new(FileBinaryChecker),
-        }
+        Self::default()
     }
+}
 
+impl<W, B> DirectoryProcessor<W, B>
+where
+    W: DirectoryWalker,
+    B: BinaryChecker,
+{
     /// Creates a processor with custom dependencies (for testing).
     #[cfg(test)]
-    pub fn with_deps(
-        walker: Box<dyn DirectoryWalker>,
-        binary_checker: Box<dyn BinaryChecker>,
-    ) -> Self {
+    pub fn with_deps(walker: W, binary_checker: B) -> Self {
         Self {
             walker,
             binary_checker,
@@ -177,10 +192,10 @@ impl DirectoryProcessor {
         ];
 
         let mut patterns = config.ignore_content.clone();
-        patterns.extend(CONFIG_FILES.iter().map(|&s| s.to_string()));
+        patterns.extend(CONFIG_FILES.iter().copied().map(String::from));
 
         if skip_tests {
-            patterns.extend(TEST_PATTERNS.iter().map(|&s| s.to_string()));
+            patterns.extend(TEST_PATTERNS.iter().copied().map(String::from));
         }
 
         patterns
@@ -361,6 +376,7 @@ fn build_ptree_recursive(
 mod tests {
     use super::*;
     use mockall::mock;
+    use crate::cli::FormatArg::{PseudoXml};
 
     // Helper function to create a test config
     fn create_test_config(
@@ -368,6 +384,7 @@ mod tests {
         ignore_content: Vec<&str>,
     ) -> Config {
         Config {
+            format: Some(PseudoXml),
             ignore_tree_and_content: ignore_tree_and_content
                 .into_iter()
                 .map(String::from)
@@ -502,7 +519,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec!["*.log", "node_modules/"], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -541,7 +558,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec!["hidden.txt"]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -578,7 +595,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -615,7 +632,7 @@ mod tests {
             .returning(|path| Ok(path.extension().and_then(|s| s.to_str()) == Some("png")));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -656,7 +673,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -698,7 +715,7 @@ mod tests {
         mock_binary.expect_is_binary_or_image().times(0);
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -731,7 +748,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec!["hide_completely.txt"], vec!["show_in_tree_only.txt"]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -770,7 +787,7 @@ mod tests {
         let mock_binary = MockBinaryChecker::new();
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false);
@@ -798,7 +815,7 @@ mod tests {
             .return_once(|_| Err(anyhow::anyhow!("Binary check error")));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false);
@@ -831,7 +848,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, true)?;
@@ -873,7 +890,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -906,7 +923,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false)?;
@@ -942,7 +959,7 @@ mod tests {
             .returning(|_| Ok(false));
 
         let processor =
-            DirectoryProcessor::with_deps(Box::new(mock_walker), Box::new(mock_binary));
+            DirectoryProcessor::with_deps(mock_walker, mock_binary);
 
         let config = create_test_config(vec![], vec![]);
         let result = processor.process(&base_path, &config, false, false);

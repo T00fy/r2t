@@ -1,3 +1,4 @@
+use crate::cli::FormatArg;
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use serde::Deserialize;
@@ -7,6 +8,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    #[serde(default)]
+    pub format: Option<FormatArg>,
     #[serde(default)]
     pub ignore_tree_and_content: Vec<String>,
     #[serde(default)]
@@ -43,8 +46,12 @@ impl Config {
     }
 
     pub fn create_default_config(path: &Path) -> Result<()> {
-        let default_settings = r#"# r2t settings file - https://github.com/your-repo/r2t
+        let default_settings = r#"# r2t settings file - https://github.com/T00fy/r2t
 # Syntax: gitignore-style glob patterns
+
+# The output format. Can be: yaml, json, xml
+# Defaults to yaml if not specified.
+# format: yaml
 
 # Ignore files and directories for both the tree view and content sections.
 ignore-tree-and-content:

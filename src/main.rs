@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::fs;
-use std::io::Write;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod cli;
@@ -12,9 +11,19 @@ mod output;
 mod processor;
 mod stripper;
 
-use cli::Cli;
-use config::Config;
+use crate::cli::{Cli, FormatArg};
+use crate::config::Config;
+use crate::output::OutputFormat;
 use crate::processor::DirectoryProcessor;
+
+fn determine_format(cli_format: Option<FormatArg>, config_format: Option<FormatArg>) -> OutputFormat {
+    match cli_format.or(config_format) {
+        Some(FormatArg::Json) => OutputFormat::Json,
+        Some(FormatArg::PseudoJson) => OutputFormat::PseudoJson,
+        Some(FormatArg::PseudoXml) => OutputFormat::PseudoXml,
+        _ => OutputFormat::Yaml, // Default to YAML
+    }
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -35,13 +44,14 @@ fn main() -> Result<()> {
 
     let start_path = cli.path;
     let config = Config::load(&start_path)?;
+    let output_format = determine_format(cli.format, config.format);
 
     let project_name = start_path
         .canonicalize()?
         .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
+        .and_then(|n| n.to_str())
+        .context("Failed to extract directory name from path")?
+        .to_owned();
 
     let process_result = DirectoryProcessor::new().process(
         &start_path,
@@ -50,13 +60,37 @@ fn main() -> Result<()> {
         cli.skip_tests,
     )?;
 
-    let final_output = output::generate_output(
-        &project_name,
-        &process_result.tree,
-        &process_result.files_to_include,
-        &start_path,
-        cli.skip_tests
-    )?;
+    let mut contents = Vec::new();
+    for file_path in &process_result.files_to_include {
+        let relative_path = file_path.strip_prefix(&start_path).with_context(|| {
+            format!(
+                "Failed to strip prefix from '{}'",
+                file_path.to_string_lossy()
+            )
+        })?;
+
+        let raw_content = files::read_file_contents(file_path)
+            .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+
+        let content = if cli.skip_tests {
+            stripper::strip_inline_tests(file_path, &raw_content)
+        } else {
+            raw_content
+        };
+
+        contents.push(output::FileContent {
+            full_path: relative_path.to_string_lossy().into_owned(),
+            content,
+        });
+    }
+
+    let repo_representation = output::RepoRepresentation {
+        directory: project_name,
+        directory_structure: process_result.tree,
+        contents,
+    };
+
+    let final_output = output::render(output_format, &repo_representation)?;
 
     if cli.stdout {
         print!("{}", final_output);
@@ -68,13 +102,18 @@ fn main() -> Result<()> {
         }
 
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let filename = format!("repo-to-text_{}.txt", timestamp);
+        
+        let extension = match output_format {
+            OutputFormat::Json => "json",
+            OutputFormat::Yaml => "yaml",
+            _ => "txt", // PseudoJson and PseudoXml get .txt
+        };
+
+        let filename = format!("repo-to-text_{}.{}", timestamp, extension);
         let output_path = output_dir.join(filename);
 
-        let mut file = fs::File::create(&output_path)
-            .with_context(|| format!("Failed to create output file: {:?}", output_path))?;
-        file.write_all(final_output.as_bytes())
-            .with_context(|| format!("Failed to write to output file: {:?}", output_path))?;
+        fs::write(&output_path, &final_output)
+            .with_context(|| format!("Failed to write output file: {:?}", output_path))?;
 
         println!(
             "[SUCCESS] Repository structure and contents successfully saved to file: \"{}\"",
