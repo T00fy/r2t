@@ -120,17 +120,18 @@ fn test_cli_basic_run_default_yaml() -> TestResult {
 
     r2t_cmd(root)?.assert().success().stdout(
         contains_all(&[
-            "directory:",
-            "directory_structure: |",
-            r#"  - full_path: README.md
-    content: |
-      This is a test."#,
-            r#"  - full_path: src/main.rs
-    content: |
-      fn main() {}"#,
+            "<repo-to-text>",
+            "Directory:",
+            "Directory Structure:",
+            "<directory_structure>",
+            "<content full_path=\"README.md\">",
+            "This is a test.",
+            "</content>",
+            "<content full_path=\"src/main.rs\">",
+            "fn main() {}",
         ])
             .and(predicate::str::is_match(r"(?m)^\s*[├└]─ .gitignore$").unwrap())
-            .and(contains_none(&["full_path: .gitignore", "output.log"])),
+            .and(contains_none(&["output.log"])),
     );
 
     Ok(())
@@ -148,19 +149,17 @@ fn test_cli_no_gitignore_flag() -> TestResult {
     r2t_cmd(root)?
         .assert()
         .success()
-        .stdout(contains_all(&["not_ignored.txt"]).and(contains_none(&["full_path: ignored.txt"])));
+        .stdout(contains_all(&["not_ignored.txt"]).and(contains_none(&["I should be ignored"])));
 
     r2t_cmd(root)?
         .arg("--no-gitignore")
         .assert()
         .success()
         .stdout(contains_all(&[
-            r#"  - full_path: ignored.txt
-    content: |
-      I should be ignored"#,
-            r#"  - full_path: not_ignored.txt
-    content: |
-      I am here"#,
+            "<content full_path=\"ignored.txt\">",
+            "I should be ignored",
+            "<content full_path=\"not_ignored.txt\">",
+            "I am here",
         ]));
 
     Ok(())
@@ -186,14 +185,15 @@ ignore-content:
     )?;
 
     r2t_cmd(root)?.assert().success().stdout(
-        contains_all(&[r#"  - full_path: src/main.rs
-    content: |
-      fn main() {}"#])
+        contains_all(&[
+            "<content full_path=\"src/main.rs\">",
+            "fn main() {}",
+        ])
             .and(predicate::str::is_match(r"(?m)^\s*[├└]─ README.md$").unwrap())
             .and(contains_none(&[
                 "docs/",
                 "guide.md",
-                "full_path: README.md",
+                "full_path=\"README.md\"",
                 "This is a test.",
             ])),
     );
@@ -211,9 +211,10 @@ fn test_binary_file_exclusion() -> TestResult {
     fs::write(root.join("icon.svg"), "<svg></svg>")?;
 
     r2t_cmd(root)?.assert().success().stdout(
-        contains_all(&[r#"  - full_path: icon.svg
-    content: |
-      <svg></svg>"#])
+        contains_all(&[
+            "<content full_path=\"icon.svg\">",
+            "<svg></svg>",
+        ])
             .and(predicate::str::contains("logo.png").not()),
     );
 
@@ -243,12 +244,10 @@ fn test_skip_tests_go_and_java() -> TestResult {
 
     // Without --skip-tests: all files should be present
     r2t_cmd(root)?.assert().success().stdout(contains_all(&[
-        r#"  - full_path: main_test.go
-    content: |
-      package main_test"#,
-        r#"  - full_path: src/test/java/AppTest.java
-    content: |
-      public class AppTest {}"#,
+        "<content full_path=\"main_test.go\">",
+        "package main_test",
+        "<content full_path=\"src/test/java/AppTest.java\">",
+        "public class AppTest {}",
     ]));
 
     // With --skip-tests: test files appear in tree but not in content
@@ -258,19 +257,17 @@ fn test_skip_tests_go_and_java() -> TestResult {
         .success()
         .stdout(
             contains_all(&[
-                r#"  - full_path: main.go
-    content: |
-      package main"#,
-                r#"  - full_path: src/main/java/App.java
-    content: |
-      public class App {}"#,
+                "<content full_path=\"main.go\">",
+                "package main",
+                "<content full_path=\"src/main/java/App.java\">",
+                "public class App {}",
                 "main_test.go",
                 "AppTest.java",
             ])
                 .and(contains_none(&[
-                    "full_path: main_test.go",
+                    "full_path=\"main_test.go\"",
                     "package main_test",
-                    "full_path: src/test/java/AppTest.java",
+                    "full_path=\"src/test/java/AppTest.java\"",
                     "public class AppTest {}",
                 ])),
         );
@@ -429,14 +426,13 @@ fn test_yaml_code_blocks_must_be_literals() -> TestResult {
         .assert()
         .success()
         .stdout(contains_all(&[
-            "  - full_path: README1.md",
-            "    content: |",
-            "      This is a test",
-            "      The output should be good and not have newlines everywhere",
-            "      Blah blah blah",
-            "  - full_path: README2.md",
-            "      This is another test",
-            "      The line endings should also be good here",
+            "<content full_path=\"README1.md\">",
+            "This is a test",
+            "The output should be good and not have newlines everywhere",
+            "Blah blah blah",
+            "<content full_path=\"README2.md\">",
+            "This is another test",
+            "The line endings should also be good here",
         ]));
 
     Ok(())
