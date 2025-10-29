@@ -30,7 +30,7 @@ Or if you wanted to install from source:
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-username/r2t.git
+    git clone https://github.com/T00fy/r2t.git
     cd r2t
     ```
 2.  Build and install the binary:
@@ -117,7 +117,7 @@ r2t --create-settings --global
 The default configuration looks like this:
 
 ```yaml
-# r2t settings file - https://github.com/your-username/r2t
+# r2t settings file - https://github.com/T00fy/r2t
 # Syntax: gitignore-style glob patterns
 
 # The output format. Can be: yaml, json, pseudo-json, pseudo-xml
