@@ -7,9 +7,9 @@ It is a Rust rewrite inspired by the original Python [repo-to-text](https://gith
 ## Key Features
 
 -   **Flexible Output Formats:** Generate output in multiple formats. These formats are not strict, and are more akin to a pseudo format for better output to an LLM:
-    -   `yaml` (default): Clean, standard YAML-like output.
+    -   `xml`: (default) The original repo-to-text output, XML-like.
+    -   `yaml`: clean, YAML-like output, slightly more verbose.
     -   `json`: JSON-like output.
-    -   `xml`: The original repo-to-text output, XML-like.
 -   **Smart Filtering:**
     -   Respects `.gitignore` rules by default.
     -   Automatically detects and excludes binary files like images, archives, and executables (while intelligently including text-based vector graphics like SVG).
@@ -42,7 +42,7 @@ Or if you wanted to install from source:
 
 ### Basic Usage
 
-Running `r2t` in a project directory will process it and create a timestamped output file (e.g., `repo-to-text_1700000000.yaml`) in the same directory. The default output format is YAML.
+Running `r2t` in a project directory will process it and create a timestamped output file (e.g., `repo-to-text_1700000000.yaml`) in the same directory. The default output format is XML.
 
 ```bash
 # Process the current directory (creates a .yaml file)
@@ -115,8 +115,8 @@ The default configuration looks like this:
 # Syntax: gitignore-style glob patterns
 
 # The output format. Can be: yaml, json, xml
-# Defaults to yaml if not specified.
-# format: yaml
+# Defaults to xml if not specified.
+# format: xml
 
 # Ignore files and directories for both the tree view and content sections.
 ignore-tree-and-content:

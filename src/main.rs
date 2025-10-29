@@ -19,8 +19,9 @@ use crate::processor::DirectoryProcessor;
 fn determine_format(cli_format: Option<FormatArg>, config_format: Option<FormatArg>) -> OutputFormat {
     match cli_format.or(config_format) {
         Some(FormatArg::Json) => OutputFormat::Json,
+        Some(FormatArg::Yaml) => OutputFormat::Yaml,
         Some(FormatArg::Xml) => OutputFormat::Xml,
-        _ => OutputFormat::Yaml,
+        _ => OutputFormat::Xml,
     }
 }
 

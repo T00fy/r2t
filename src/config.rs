@@ -50,8 +50,8 @@ impl Config {
 # Syntax: gitignore-style glob patterns
 
 # The output format. Can be: yaml, json, xml
-# Defaults to yaml if not specified.
-# format: yaml
+# Defaults to xml if not specified.
+# format: xml
 
 # Ignore files and directories for both the tree view and content sections.
 ignore-tree-and-content:
