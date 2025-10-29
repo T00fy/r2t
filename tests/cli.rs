@@ -1,4 +1,3 @@
-// tests/cli.rs
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::fs;

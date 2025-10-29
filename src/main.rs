@@ -21,7 +21,7 @@ fn determine_format(cli_format: Option<FormatArg>, config_format: Option<FormatA
         Some(FormatArg::Json) => OutputFormat::Json,
         Some(FormatArg::PseudoJson) => OutputFormat::PseudoJson,
         Some(FormatArg::PseudoXml) => OutputFormat::PseudoXml,
-        _ => OutputFormat::Yaml, // Default to YAML
+        _ => OutputFormat::Yaml,
     }
 }
 
