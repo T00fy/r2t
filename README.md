@@ -6,13 +6,16 @@ It is a Rust rewrite inspired by the original Python [repo-to-text](https://gith
 
 ## Key Features
 
--   **Blazing Fast:** Built in Rust for optimal performance on large codebases.
--   **LLM-Friendly Output:** Generates a single text file with a clear directory tree and full-path-annotated content.
+-   **Flexible Output Formats:** Generate output in multiple formats:
+    -   `yaml` (default): Clean, standard YAML output.
+    -   `json`: Strict, valid JSON for machine readability.
+    -   `pseudo-json`: A highly readable JSON-like format using multi-line strings.
+    -   `pseudo-xml`: The original, LLM-friendly pseudo-XML format.
 -   **Smart Filtering:**
     -   Respects `.gitignore` rules by default.
     -   Automatically detects and excludes binary files like images, archives, and executables (while intelligently including text-based vector graphics like SVG).
     -   Optionally skips the content of test files (e.g., `*_test.go`, `src/test/**`) and inline Rust test modules (`#[cfg(test)]`) to create a more concise context.
--   **Customizable:** Use a `.r2t.yaml` file to define custom ignore patterns for fine-grained control over the output.
+-   **Customizable:** Use a `.r2t.yaml` file to define custom ignore patterns and a default output format.
 -   **Easy to Use:** Simple and intuitive command-line interface.
 -   **Cross-Platform:** Works on Windows, macOS, and Linux.
 
@@ -35,10 +38,10 @@ It is a Rust rewrite inspired by the original Python [repo-to-text](https://gith
 
 ### Basic Usage
 
-Running `r2t` in a project directory will process it and create a timestamped output file (e.g., `repo-to-text_1700000000.txt`) in the same directory.
+Running `r2t` in a project directory will process it and create a timestamped output file (e.g., `repo-to-text_1700000000.yaml`) in the same directory. The default output format is YAML.
 
 ```bash
-# Process the current directory
+# Process the current directory (creates a .yaml file)
 r2t
 
 # Process a specific directory
@@ -55,6 +58,7 @@ Arguments:
 
 Options:
   -o, --output-dir <OUTPUT_DIR>  Directory to save the output file. Defaults to the input directory
+      --format <FORMAT>          The output format for the final text file [possible values: yaml, json, pseudo-json, pseudo-xml]
       --stdout                   Output the result to stdout instead of a file
       --no-gitignore             Do not respect .gitignore files for filtering
       --skip-tests               Skip including the content of test files and inline test modules
@@ -66,9 +70,14 @@ Options:
 
 **Examples:**
 
--   **Print to terminal:**
+-   **Output to terminal in the readable pseudo-json format:**
     ```bash
-    r2t --stdout
+    r2t --format pseudo-json --stdout
+    ```
+
+-   **Create a valid, standard JSON file:**
+    ```bash
+    r2t --format json
     ```
 
 -   **Save to a different directory:**
@@ -81,19 +90,14 @@ Options:
     r2t --no-gitignore
     ```
 
--   **Exclude test file content:**
+-   **Exclude test file content: (Currently only java/go/rust/python is supported)**
     ```bash
     r2t --skip-tests
     ```
 
--   **Generate a configuration file:**
-    ```bash
-    r2t --create-settings
-    ```
-
 ## Configuration
 
-You can customize which files are included by creating a `.r2t.yaml` file in your project's root directory. `r2t` will automatically use it. You can also create a global config file.
+You can customize which files are included and the default format by creating a `.r2t.yaml` file in your project's root directory. `r2t` will automatically use it. You can also create a global config file.
 
 To generate a default config file, run:
 
@@ -111,6 +115,10 @@ The default configuration looks like this:
 # r2t settings file - https://github.com/your-username/r2t
 # Syntax: gitignore-style glob patterns
 
+# The output format. Can be: yaml, json, pseudo-json, pseudo-xml
+# Defaults to yaml if not specified.
+# format: yaml
+
 # Ignore files and directories for both the tree view and content sections.
 ignore-tree-and-content:
   - ".git/"
@@ -127,6 +135,7 @@ ignore-content:
   - ".r2t.yaml"
 ```
 
+-   `format`: Sets the default output format when the `--format` flag is not used.
 -   `ignore-tree-and-content`: Patterns for files/directories to be **completely excluded** from both the directory tree and the content output.
 -   `ignore-content`: Patterns for files to be **excluded from the content section**, but still be visible in the directory tree. This is useful for things like lock files or licenses that you want the LLM to know exist but don't need the contents of.
 
