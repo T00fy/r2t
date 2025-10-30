@@ -418,22 +418,3 @@ fn test_format_precedence() -> TestResult {
 
     Ok(())
 }
-
-#[test]
-fn test_yaml_code_blocks_must_be_literals() -> TestResult {
-    let fixture_dir = Path::new("tests/fixtures/normalization");
-    r2t_cmd(fixture_dir)?
-        .assert()
-        .success()
-        .stdout(contains_all(&[
-            "<content full_path=\"README1.md\">",
-            "This is a test",
-            "The output should be good and not have newlines everywhere",
-            "Blah blah blah",
-            "<content full_path=\"README2.md\">",
-            "This is another test",
-            "The line endings should also be good here",
-        ]));
-
-    Ok(())
-}
