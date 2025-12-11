@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
     #[serde(default)]
@@ -30,11 +30,57 @@ impl Config {
         Ok(Config::default())
     }
 
+    pub fn load_from_file(path: &Path) -> Result<Self> {
+        Self::from_path(path)
+    }
+
     fn from_path(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file at {:?}", path))?;
         serde_yaml::from_str(&content)
             .with_context(|| format!("Failed to parse YAML from config file at {:?}", path))
+    }
+
+    /// Merges another config into this one.
+    /// Patterns from the `other` config are prefixed with the given `prefix`
+    /// so they apply correctly relative to the project root.
+    pub fn merge(&mut self, other: Config, prefix: &Path) {
+        // Helper to prefix a single glob pattern
+        let prefix_pattern = |pattern: String| -> String {
+            // If the pattern matches everything, or is empty, we probably don't need to prefix strictly,
+            // but standard gitignore behavior suggests all patterns in a subdir are relative to it.
+            // We use forward slashes for globs.
+            let prefix_str = prefix.to_string_lossy().replace('\\', "/");
+
+            if prefix_str.is_empty() {
+                return pattern;
+            }
+
+            // Handle negation
+            if let Some(stripped) = pattern.strip_prefix('!') {
+                format!("!{}/{}", prefix_str, stripped)
+            } else if pattern.starts_with('/') {
+                // If pattern is anchored at root of the config file (e.g. /foo), 
+                // it becomes anchored at the subdir (e.g. /subdir/foo).
+                // globset treats patterns starting with / as anchored.
+                // We strip the leading / from the pattern and append to prefix.
+                format!("{}/{}", prefix_str, pattern.trim_start_matches('/'))
+            } else {
+                // Standard pattern (e.g. *.log or node_modules/)
+                format!("{}/{}", prefix_str, pattern)
+            }
+        };
+
+        // Extend ignore lists
+        self.ignore_tree_and_content.extend(
+            other.ignore_tree_and_content.into_iter().map(prefix_pattern)
+        );
+        self.ignore_content.extend(
+            other.ignore_content.into_iter().map(prefix_pattern)
+        );
+
+        // Note: We intentionally do not merge 'format'. 
+        // The root config (or CLI arg) dictates the output format.
     }
 
     pub fn get_global_path() -> Result<PathBuf> {

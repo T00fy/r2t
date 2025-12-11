@@ -9,6 +9,7 @@ mod config;
 mod files;
 mod output;
 mod processor;
+mod resolver;
 mod stripper;
 
 use crate::cli::{Cli, FormatArg};
@@ -58,6 +59,7 @@ fn main() -> Result<()> {
         &config,
         cli.no_gitignore,
         cli.skip_tests,
+        cli.no_merge,
     )?;
 
     let mut contents = Vec::new();

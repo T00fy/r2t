@@ -38,8 +38,12 @@ pub struct Cli {
     #[arg(long)]
     pub skip_tests: bool,
 
+    /// Disable merging of nested .r2t.yaml configuration files.
+    #[arg(long)]
+    pub no_merge: bool,
+
     /// Create a default .r2t.yaml settings file in the current directory.
-    #[arg(long, conflicts_with_all = &["path", "output_dir", "stdout", "no_gitignore", "skip_tests", "format"])]
+    #[arg(long, conflicts_with_all = &["path", "output_dir", "stdout", "no_gitignore", "skip_tests", "format", "no_merge"])]
     pub create_settings: bool,
 
     /// Use with --create-settings to create a global configuration file.

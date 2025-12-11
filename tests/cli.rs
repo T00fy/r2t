@@ -418,3 +418,59 @@ fn test_format_precedence() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn test_nested_config_merging_default() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    fs::create_dir(root.join("frontend"))?;
+    fs::write(root.join("root.txt"), "Root content")?;
+    fs::write(root.join("frontend/secret.txt"), "Secret content")?;
+
+    fs::write(
+        root.join("frontend/.r2t.yaml"),
+        "ignore-content:\n  - secret.txt\n",
+    )?;
+
+    r2t_cmd(root)?.assert().success().stdout(
+        contains_all(&[
+            "<content full_path=\"root.txt\">",
+            "Root content",
+            "secret.txt",
+        ])
+            .and(contains_none(&[
+                "<content full_path=\"frontend/secret.txt\">",
+                "Secret content",
+            ])),
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_no_merge_flag() -> TestResult {
+    let dir = tempdir()?;
+    let root = dir.path();
+
+    fs::create_dir(root.join("frontend"))?;
+    fs::write(root.join("root.txt"), "Root content")?;
+    fs::write(root.join("frontend/secret.txt"), "Secret content")?;
+
+    fs::write(
+        root.join("frontend/.r2t.yaml"),
+        "ignore-content:\n  - secret.txt\n",
+    )?;
+
+    r2t_cmd(root)?
+        .arg("--no-merge")
+        .assert()
+        .success()
+        .stdout(contains_all(&[
+            "<content full_path=\"root.txt\">",
+            "<content full_path=\"frontend/secret.txt\">",
+            "Secret content",
+        ]));
+
+    Ok(())
+}
