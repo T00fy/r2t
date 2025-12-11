@@ -1,6 +1,6 @@
 [package]
 name = "r2t"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["Mostafa Alsari <mostafa.alsari@gmail.com>"]
 description = "A fast CLI tool to convert a repository's structure and contents into a single text file, useful for providing context to LLMs."
